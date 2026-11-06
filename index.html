@@ -27,11 +27,21 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   .sidebar{transform:translateX(-105%);box-shadow:20px 0 60px #0009}
   .sidebar.open{transform:translateX(0)}
   .main{margin-left:0}
-  .mobilemenu{display:inline-block}
-  .topbar{padding:0 12px;min-width:0;gap:8px}
+  .mobilemenu{display:inline-flex;align-items:center;justify-content:center;flex:none;min-width:42px;min-height:42px;position:relative;z-index:2}
+  /* Respeta la zona segura del iPhone: evita que la hora tape el menú. */
+  .topbar{height:calc(60px + env(safe-area-inset-top, 0px));padding:env(safe-area-inset-top, 0px) 12px 0;min-width:0;gap:8px;box-sizing:border-box;position:sticky;top:0;z-index:100}
+  .sidebar{top:0;padding-top:calc(18px + env(safe-area-inset-top, 0px));padding-bottom:calc(18px + env(safe-area-inset-bottom, 0px));height:100dvh;max-height:100vh;overflow-y:auto;overscroll-behavior:contain}
   .topright{min-width:0;gap:7px}
   .topright .userlabel{display:none}
   .global-search{display:none}
+}
+@media (max-width: 620px){
+  .topbar{height:calc(58px + env(safe-area-inset-top, 0px));padding-left:10px;padding-right:10px}
+  .crumb{min-width:0;display:flex;align-items:center;gap:5px;white-space:nowrap;font-size:11px}
+  .crumb b{overflow:hidden;text-overflow:ellipsis;max-width:34vw}
+  .topright{gap:5px}
+  .topright .iconbtn{min-width:36px;min-height:36px}
+  .sidebar{width:min(300px,86vw)}
 }
 </style>
 </head>
