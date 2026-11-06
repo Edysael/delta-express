@@ -659,6 +659,18 @@ function opsTripCost(id){let t=db.trips.find(x=>x.id===id);if(!t)return;modal('R
 (async()=>{
  const SUPABASE_URL='https://rynhiojxnjhvyeqxygrq.supabase.co';
  const SUPABASE_PUBLISHABLE_KEY='sb_publishable_o4ICAtatZauzi1ntruNPeA_BOG88cA3';
+ // Esperar a que el módulo principal publique su estado global antes de iniciar Auth.
+ // Evita capturar window.db como undefined si el navegador retrasa la ejecución del script principal.
+ if(!window.db){
+  await new Promise(resolve=>{
+   const started=Date.now();
+   const check=()=>{
+    if(window.db || Date.now()-started>=8000){resolve();return;}
+    setTimeout(check,50);
+   };
+   check();
+  });
+ }
  const db=window.db;
  const $=id=>document.getElementById(id);
  const gate=$('dxAuthGate');
