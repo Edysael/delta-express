@@ -31,23 +31,26 @@
    const {data:deliveries,error}=await a.client.from('deliveries').select('id,company_id,shipment_id,driver_id,branch_id,status,attempt_number,recipient_name,delivered_at,updated_at,created_at,next_attempt_at').eq('company_id',c.id).order('updated_at',{ascending:false}).limit(500);
    if(error)throw error;
    const rows=deliveries||[],shipmentIds=[...new Set(rows.map(x=>x.shipment_id).filter(Boolean))],driverIds=[...new Set(rows.map(x=>x.driver_id).filter(Boolean))],branchIds=[...new Set(rows.map(x=>x.branch_id).filter(Boolean))];
-   const [ships,drivers,branches]=await Promise.all([
+   const [ships,drivers,branches,events]=await Promise.all([
     shipmentIds.length?a.client.from('shipments').select('id,tracking_code,recipient_name,destination_city,status').eq('company_id',c.id).in('id',shipmentIds):Promise.resolve({data:[],error:null}),
     driverIds.length?a.client.from('drivers').select('id,full_name').eq('company_id',c.id).in('id',driverIds):Promise.resolve({data:[],error:null}),
-    branchIds.length?a.client.from('branches').select('id,name,city').eq('company_id',c.id).in('id',branchIds):Promise.resolve({data:[],error:null})
+    branchIds.length?a.client.from('branches').select('id,name,city').eq('company_id',c.id).in('id',branchIds):Promise.resolve({data:[],error:null}),
+    shipmentIds.length?a.client.from('shipment_events').select('id,shipment_id,event_type,new_status,created_at').eq('company_id',c.id).in('shipment_id',shipmentIds).order('created_at',{ascending:false}).limit(1500):Promise.resolve({data:[],error:null})
    ]);
-   if(ships.error)throw ships.error;if(drivers.error)throw drivers.error;if(branches.error)throw branches.error;
-   const sm=new Map((ships.data||[]).map(x=>[x.id,x])),dm=new Map((drivers.data||[]).map(x=>[x.id,x])),bm=new Map((branches.data||[]).map(x=>[x.id,x]));
-   lastRows=rows.map(r=>({...r,shipment:sm.get(r.shipment_id)||{},driver:dm.get(r.driver_id)||{},branch:bm.get(r.branch_id)||{}}));
+   if(ships.error)throw ships.error;if(drivers.error)throw drivers.error;if(branches.error)throw branches.error;if(events.error)throw events.error;
+   const sm=new Map((ships.data||[]).map(x=>[x.id,x])),dm=new Map((drivers.data||[]).map(x=>[x.id,x])),bm=new Map((branches.data||[]).map(x=>[x.id,x])),em=new Map();
+   (events.data||[]).forEach(e=>{if(!em.has(e.shipment_id))em.set(e.shipment_id,e);});
+   lastRows=rows.map(r=>({...r,shipment:sm.get(r.shipment_id)||{},driver:dm.get(r.driver_id)||{},branch:bm.get(r.branch_id)||{},lastEvent:em.get(r.shipment_id)||null}));
    const count=s=>rows.filter(r=>r.status===s).length,active=count('assigned')+count('in_progress'),delivered=count('delivered'),failed=count('failed');
    p.querySelector('#dxOpsKpis').innerHTML=[['Total entregas',rows.length],['En curso',active],['Entregadas',delivered],['Fallidas',failed]].map(([k,v])=>'<div class="card stat"><div class="statlabel">'+k+'</div><div class="statvalue">'+v+'</div></div>').join('');
-   const alerts=lastRows.filter(r=>(r.status==='in_progress'&&Date.now()-new Date(r.updated_at).getTime()>2*3600000)||(r.status==='assigned'&&Date.now()-new Date(r.updated_at).getTime()>4*3600000));
-   p.querySelector('#dxOpsAlerts').innerHTML=alerts.length?alerts.slice(0,12).map(r=>'<div style="padding:7px 0;border-bottom:1px solid var(--line,#203b68)">⚠ <b>'+esc(r.shipment.tracking_code||r.shipment_id)+'</b> · '+(r.status==='in_progress'?'Sin movimiento registrado hace ':'Asignada sin iniciar hace ')+age(r.updated_at)+'</div>').join(''):'<div class="empty">No hay alertas por antigüedad. Umbrales: 2 h en reparto y 4 h asignada.</div>';
+   const alertRows=lastRows.map(r=>{const activityAt=r.status==='assigned'?r.created_at:(r.lastEvent?.created_at||r.updated_at);return {...r,activityAt};});
+   const alerts=alertRows.filter(r=>(r.status==='in_progress'&&Date.now()-new Date(r.activityAt).getTime()>2*3600000)||(r.status==='assigned'&&Date.now()-new Date(r.activityAt).getTime()>4*3600000));
+   p.querySelector('#dxOpsAlerts').innerHTML=alerts.length?alerts.slice(0,12).map(r=>'<div style="padding:7px 0;border-bottom:1px solid var(--line,#203b68)">⚠ <b>'+esc(r.shipment.tracking_code||r.shipment_id)+'</b> · '+(r.status==='in_progress'?'Último evento registrado hace ':'Asignada sin iniciar hace ')+age(r.activityAt)+'</div>').join(''):'<div class="empty">No hay alertas por antigüedad. Umbrales: 2 h desde el último evento en reparto y 4 h desde la asignación.</div>';
    p.querySelector('#dxOpsTable tbody').innerHTML=lastRows.slice(0,100).map(r=>'<tr><td class="code">'+esc(r.shipment.tracking_code||'—')+'</td><td>'+esc(statusLabel(r.status))+'</td><td>'+esc(r.driver.full_name||'Sin asignar')+'</td><td>'+esc(r.branch.name||r.branch.city||'—')+'</td><td>'+fmt(r.updated_at)+'</td><td>'+age(r.updated_at)+'</td><td><button class="btn small" data-evidence="'+esc(r.id)+'">Ver evidencia</button></td><td>'+(r.status==='failed'||r.status==='rescheduled'?'<button class="btn small" data-retry="'+esc(r.id)+'">Reprogramar</button> ':'')+(r.status==='failed'||r.status==='rescheduled'?'<button class="btn small" data-return="'+esc(r.id)+'">Retorno a sucursal</button>':'—')+'</td></tr>').join('')||'<tr><td colspan="7" class="empty">No hay entregas registradas.</td></tr>';
    p.querySelector('#dxOpsCount').textContent=rows.length+' registros · mostrando hasta 100';
    const group=(key,field)=>{const m=new Map();lastRows.forEach(r=>{const n=(field==='driver.full_name'?r.driver.full_name:r.branch.name)||'Sin asignar';if(!m.has(n))m.set(n,{total:0,delivered:0});const v=m.get(n);v.total++;if(r.status==='delivered')v.delivered++;});return [...m.entries()].sort((a,b)=>b[1].total-a[1].total).slice(0,8).map(([n,v])=>'<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line,#203b68)"><span>'+esc(n)+'</span><b>'+v.delivered+'/'+v.total+'</b></div>').join('')||'Sin datos';};
    p.querySelector('#dxOpsDrivers').innerHTML=group('driver','driver.full_name');p.querySelector('#dxOpsBranches').innerHTML=group('branch','branch.name');
-   notice.textContent='Datos actualizados: '+new Date().toLocaleTimeString('es-CL')+'. Los avisos se calculan con la antigüedad de updated_at; no representan una ETA contractual.';
+   notice.textContent='Datos actualizados: '+new Date().toLocaleTimeString('es-CL')+'. Las alertas usan la fecha de asignación o el último evento de seguimiento disponible; no representan una ETA contractual.';
   }catch(e){notice.textContent='No se pudieron consultar las operaciones: '+(e.message||'Error de permisos o conexión')+'. La consulta respeta las políticas RLS de Supabase.';console.error('Delta-Express operaciones:',e);}
   finally{busy=false;}
  }
