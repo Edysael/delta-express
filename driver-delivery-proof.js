@@ -15,6 +15,7 @@
  }
  function getShipments(){return (window.driverMobileShipments?.()||[]).filter(s=>s.id&&s.status!=='Entregada');}
  function renderProofPanel(){
+  if(!getShipments().length)return;
   const host=document.getElementById('driverMobileRoute');if(!host||document.getElementById('dxProofPanel'))return;
   const list=getShipments();const panel=document.createElement('section');panel.id='dxProofPanel';panel.style.cssText='padding:14px;margin:12px 0;border:1px solid #cbd5e1;border-radius:14px;background:var(--card,#fff)';
   panel.innerHTML='<h3 style="margin:0 0 6px">Comprobante digital de entrega</h3><p style="font-size:13px;opacity:.75;margin:0 0 12px">Registra al receptor, fotografía y firma para dejar constancia de la entrega.</p><button type="button" class="btn primary" id="dxProofOpen">Registrar entrega y evidencia</button>';
@@ -64,6 +65,6 @@
    }catch(e){status.textContent='No se pudo completar: '+(e.message||'Error inesperado');btn.disabled=false;btn.textContent='Reintentar guardado';console.error('Delta-Express POD:',e);}
   };
  }
- const prev=window.renderDriverApp;window.renderDriverApp=function(){if(typeof prev==='function')prev();const role=String(window.currentUser?.role||'').toLowerCase();if(['driver','transportista','conductor'].includes(role)||/transportista|conductor/i.test(role))renderProofPanel();};
- document.addEventListener('DOMContentLoaded',()=>{const role=String(window.currentUser?.role||'').toLowerCase();if(['driver','transportista','conductor'].includes(role)||/transportista|conductor/i.test(role))renderProofPanel();});
+ const prev=window.renderDriverApp;window.renderDriverApp=function(){if(typeof prev==='function')prev();renderProofPanel();};
+ document.addEventListener('DOMContentLoaded',()=>renderProofPanel());
 })();
