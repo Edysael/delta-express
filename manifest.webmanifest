@@ -1,0 +1,21 @@
+{
+  "id": "/",
+  "name": "Delta-Express",
+  "short_name": "Delta-Express",
+  "description": "Plataforma de gestión logística, envíos y distribución.",
+  "lang": "es",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#050d1d",
+  "theme_color": "#081630",
+  "icons": [
+    {
+      "src": "/icons/delta-express.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
