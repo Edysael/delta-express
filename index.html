@@ -198,6 +198,8 @@ const seed={
  audit:[],settings:{company:"Delta-Express",commercial:"Delta-Express",taxid:"",address:"",phone:"",email:"",currency:"CLP",symbol:"$",tax:19,services:["Estándar","Express","Retiro en agencia"],notifyEmail:"",whatsapp:"",events:"Recepción, despacho, llegada a destino y entrega."}
 };
 let db=loadDB(),currentPage="dashboard",currentUser={name:"Administrador",role:"Administrador general",branch:"Todas"},modalAction=null;
+// Compartir el mismo estado con el módulo de autenticación, cargado en otro script.
+window.db=db;
 // Normalización de esquema: permite abrir respaldos/versiones anteriores sin perder módulos nuevos.
 function migrateDB(){
  const arrays=["shipments","branches","trips","incidents","payments","tariffs","users","cash","audit","vehicles","drivers","customers","transfers","cashMovements","deliveryProofs","quotes","notifications","branchReceipts","branchStock","branchClosings","cashClosings","claims","clientRequests","refunds","settlements","tripCosts","tripDiscrepancies","dispatches","cashReceivables","dailyClosings"];
@@ -659,6 +661,8 @@ function opsTripCost(id){let t=db.trips.find(x=>x.id===id);if(!t)return;modal('R
  const SUPABASE_URL='https://rynhiojxnjhvyeqxygrq.supabase.co';
  const SUPABASE_PUBLISHABLE_KEY='sb_publishable_o4ICAtatZauzi1ntruNPeA_BOG88cA3';
  const client=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+ const db=window.db;
+ if(!db)throw new Error('No se pudo inicializar el estado de Delta-Express. Recarga la aplicación.');
  let activeCompany=null,activeUser=null;
  const $=id=>document.getElementById(id),msg=t=>$('dxAuthMsg').textContent=t;
  const gate=$('dxAuthGate');
