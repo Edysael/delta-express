@@ -1,4 +1,4 @@
-const CACHE_NAME = "delta-express-shell-v2";
+const CACHE_NAME = "delta-express-shell-v3";
 const APP_SHELL = ["/", "/manifest.webmanifest", "/icons/delta-express.svg"];
 
 self.addEventListener("install", event => {
