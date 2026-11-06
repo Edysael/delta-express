@@ -652,21 +652,58 @@ function opsTripCost(id){let t=db.trips.find(x=>x.id===id);if(!t)return;modal('R
    <label>Teléfono (opcional)</label><input id="dxPhone" placeholder="Teléfono">
    <div class="dxactions"><button id="dxCreateCompany">Crear empresa y entrar</button><button class="secondary" id="dxSignOutSetup">Cerrar sesión</button></div>
   </section>
-  <div id="dxAuthMsg" role="status"></div>
+  <div id="dxAuthMsg" role="status" aria-live="polite">Preparando el acceso seguro…</div>
  </div>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.58.0"></script>
 <script>
-(()=>{
+(async()=>{
  const SUPABASE_URL='https://rynhiojxnjhvyeqxygrq.supabase.co';
  const SUPABASE_PUBLISHABLE_KEY='sb_publishable_o4ICAtatZauzi1ntruNPeA_BOG88cA3';
- const client=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
  const db=window.db;
- if(!db)throw new Error('No se pudo inicializar el estado de Delta-Express. Recarga la aplicación.');
- let activeCompany=null,activeUser=null;
- const $=id=>document.getElementById(id),msg=t=>$('dxAuthMsg').textContent=t;
+ const $=id=>document.getElementById(id);
  const gate=$('dxAuthGate');
- async function authError(error){msg(error?.message||'No fue posible completar la operación.');}
+ const msg=t=>{const node=$('dxAuthMsg');if(node)node.textContent=String(t??'');};
+ async function ensureSupabaseSDK(){
+  if(window.supabase?.createClient)return;
+  msg('Conectando con el servicio seguro de acceso…');
+  const sources=[
+   'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.58.0',
+   'https://unpkg.com/@supabase/supabase-js@2.58.0/dist/umd/supabase.js'
+  ];
+  let lastError=null;
+  for(const src of sources){
+   try{
+    await new Promise((resolve,reject)=>{
+     const script=document.createElement('script');
+     script.src=src;script.async=true;
+     script.onload=resolve;
+     script.onerror=()=>reject(new Error('No se pudo cargar el servicio desde '+new URL(src).host+'.'));
+     document.head.appendChild(script);
+    });
+    if(window.supabase?.createClient)return;
+    throw new Error('La librería de autenticación no se inicializó correctamente.');
+   }catch(error){lastError=error;}
+  }
+  throw lastError||new Error('No fue posible cargar el servicio de autenticación.');
+ }
+ try{await ensureSupabaseSDK();}
+ catch(error){
+  msg('No se pudo iniciar el acceso: '+(error?.message||'Error de conexión')+' Comprueba tu conexión y recarga la página.');
+  console.error('[Delta-Express] Error al cargar Supabase:',error);
+  return;
+ }
+ if(!db){
+  msg('No se pudo inicializar el estado de Delta-Express. Recarga la aplicación.');
+  console.error('[Delta-Express] window.db no está disponible.');
+  return;
+ }
+ const client=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+ let activeCompany=null,activeUser=null;
+ async function authError(error){
+  const detail=error?.message||'No fue posible completar la operación.';
+  console.error('[Delta-Express Auth]',error);
+  msg(detail);
+ }
  async function loadWorkspace(user){
    activeUser=user;
    const {data:members,error:mErr}=await client.from('company_members').select('company_id,role,status,branch_id').eq('user_id',user.id).eq('status','active');
@@ -694,8 +731,32 @@ function opsTripCost(id){let t=db.trips.find(x=>x.id===id);if(!t)return;modal('R
    db.trips=[];db.incidents=[];db.payments=[];db.tariffs=[];db.users=[];db.cash=[];db.audit=[];const [vehicles,drivers,manifests,deliveries,incidents,payments,cashSessions,refunds,auditRows]=await Promise.all([client.from('vehicles').select('id,plate,vehicle_type,make,model,capacity_kg,status').eq('company_id',activeCompany.id).order('plate'),client.from('drivers').select('id,user_id,full_name,national_id,phone,license_number,license_class,license_expiry,status').eq('company_id',activeCompany.id).order('full_name'),client.from('manifests').select('id,manifest_number,status,route_id,vehicle_id,driver_id,created_at,routes(id,name,origin_branch_id,destination_branch_id,planned_departure,planned_arrival,actual_departure,actual_arrival),vehicles(plate),drivers(full_name),manifest_shipments(shipments(id,tracking_code))').eq('company_id',activeCompany.id).order('created_at',{ascending:false}).limit(300),client.from('deliveries').select('id,shipment_id,driver_id,attempt_number,failure_reason,next_attempt_at,rescheduled_at,rescheduled_by,recipient_name,recipient_document,delivered_at,notes,status,created_at,delivery_evidence(id,evidence_type,storage_path,description,captured_at)').eq('company_id',activeCompany.id).order('created_at',{ascending:false}).limit(500),client.from('incidents').select('id,shipment_id,incident_type,severity,status,description,resolution,investigation_notes,root_cause,corrective_action,assigned_to,due_at,approval_status,approved_by,approved_at,approval_note,loss_amount,corrective_due_at,corrective_completed_at,resolved_at,branch_id,created_at').eq('company_id',activeCompany.id).order('created_at',{ascending:false}).limit(500),client.from('payments').select('id,shipment_id,customer_id,amount,method,status,reference,paid_at,metadata,reconciled_at,reconciled_by').eq('company_id',activeCompany.id).order('paid_at',{ascending:false}).limit(1000),client.from('cash_sessions').select('id,branch_id,opening_amount,closing_amount,expected_amount,difference_amount,status,opened_at,closed_at,notes,cash_movements(movement_type,amount)').eq('company_id',activeCompany.id).order('opened_at',{ascending:false}).limit(500),client.from('refunds').select('id,payment_id,shipment_id,amount,reason,status,requested_at,review_notes').eq('company_id',activeCompany.id).order('requested_at',{ascending:false}).limit(500),client.from('audit_logs').select('id,actor_user_id,actor_role,action,entity_type,entity_id,changed_fields,old_data,new_data,created_at').eq('company_id',activeCompany.id).order('created_at',{ascending:false}).limit(500)]);if(vehicles.error)throw vehicles.error;if(drivers.error)throw drivers.error;if(manifests.error)throw manifests.error;if(deliveries.error)throw deliveries.error;if(incidents.error)throw incidents.error;if(payments.error)throw payments.error;if(cashSessions.error)throw cashSessions.error;if(refunds.error)throw refunds.error;if(auditRows.error)throw auditRows.error;db.audit=(auditRows.data||[]).map(a=>({id:a.id,date:new Date(a.created_at).toLocaleString('es-CL'),rawDate:a.created_at,user:a.actor_user_id===activeUser?.id?(activeUser.email||'Usuario actual'):(a.actor_user_id||'Sistema'),role:a.actor_role||'—',action:({insert:'Creación',update:'Modificación',delete:'Eliminación'}[a.action]||a.action),entity:a.entity_type,entityId:a.entity_id,fields:a.changed_fields||[],oldData:a.old_data||{},newData:a.new_data||{}}));db.vehicles=(vehicles.data||[]).map(x=>({id:x.id,plate:x.plate,make:x.make||'',model:x.model||'',type:x.vehicle_type||'',capacity:x.capacity_kg||'',status:({'available':'Disponible','in_transit':'En ruta','maintenance':'Mantención','inactive':'Inactivo'}[x.status]||x.status)}));db.drivers=(drivers.data||[]).map(x=>({id:x.id,userId:x.user_id||null,name:x.full_name,nationalId:x.national_id||'',phone:x.phone||'',license:x.license_number||'',licenseClass:x.license_class||'',licenseExpiry:x.license_expiry||'',status:x.status==='active'?'Activo':'Inactivo'}));db.trips=(manifests.data||[]).map(m=>({id:m.id,routeId:m.route_id,code:m.manifest_number,origin:m.routes?.name?.split(' → ')[0]||'—',dest:m.routes?.name?.split(' → ')[1]||'—',plannedArrival:m.routes?.planned_arrival||null,actualArrival:m.routes?.actual_arrival||null,driver:m.drivers?.full_name||'Sin asignar',vehicle:m.vehicles?.plate||'Sin asignar',date:new Date(m.created_at).toLocaleDateString('es-CL'),status:({'draft':'Programado','sealed':'En carga','dispatched':'En tránsito','received':'Llegó a destino','closed':'Finalizado','cancelled':'Cancelado'}[m.status]||m.status),packages:(m.manifest_shipments||[]).map(ms=>ms.shipments?.tracking_code).filter(Boolean)}));db.incidents=(incidents.data||[]).map(i=>({id:i.id,code:'INC-'+String(i.id).slice(0,8).toUpperCase(),shipment:db.shipments.find(s=>s.id===i.shipment_id)?.code||'—',shipmentId:i.shipment_id,type:(i.incident_type||'Incidencia').replaceAll('_',' '),priority:({high:'Alta',medium:'Media',low:'Baja',critical:'Crítica'}[i.severity]||i.severity),assignedTo:i.assigned_to||'',dueAt:i.due_at||'',responsible:'Operaciones',description:i.description||'',status:({open:'Abierta',investigating:'En investigación',resolved:'Resuelta',closed:'Cerrada'}[i.status]||i.status),resolution:i.resolution||'',investigationNotes:i.investigation_notes||'',rootCause:i.root_cause||'',correctiveAction:i.corrective_action||'',approvalStatus:i.approval_status||'pending',approvedBy:i.approved_by||null,approvedAt:i.approved_at||null,approvalNote:i.approval_note||'',lossAmount:Number(i.loss_amount||0),correctiveDueAt:i.corrective_due_at||'',correctiveCompletedAt:i.corrective_completed_at||'',resolvedAt:i.resolved_at||'',rawDate:i.created_at,branchId:i.branch_id||null,date:new Date(i.created_at).toLocaleDateString('es-CL')}));db.payments=(payments.data||[]).map(p=>({id:p.id,reference:p.reference||p.metadata?.tracking_code||'—',customer:db.customers.find(c=>c.id===p.customer_id)?.name||p.metadata?.customer_name||db.shipments.find(s=>s.id===p.shipment_id)?.receiver||'—',amount:Number(p.amount),method:({cash:'Efectivo',bank_transfer:'Transferencia',debit_card:'Tarjeta débito',credit_card:'Tarjeta crédito',online:'En línea',other:'Otro'}[p.method]||p.method),date:new Date(p.paid_at).toLocaleDateString('es-CL'),rawDate:p.paid_at,status:({confirmed:'Pagado',pending:'Pendiente',failed:'Fallido',refunded:'Reembolsado',void:'Anulado'}[p.status]||p.status),shipmentId:p.shipment_id,reconciled:!!p.reconciled_at,reconciledAt:p.reconciled_at||null,reconciledBy:p.reconciled_by||null,rawStatus:p.status}));db.refunds=(refunds.data||[]).map(r=>({id:r.id,paymentId:r.payment_id,shipmentId:r.shipment_id,code:db.shipments.find(s=>s.id===r.shipment_id)?.code||'—',date:new Date(r.requested_at).toLocaleDateString('es-CL'),rawDate:r.requested_at,rawStatus:r.status,reason:r.reason,amount:Number(r.amount),status:({'pending':'Pendiente de aprobación','approved':'Aprobada','rejected':'Rechazada','processed':'Procesada','cancelled':'Anulada'}[r.status]||r.status),reviewNotes:r.review_notes||''}));db.cash=(cashSessions.data||[]).map(c=>{const movements=c.cash_movements||[],income=movements.filter(m=>m.movement_type==='income').reduce((a,m)=>a+Number(m.amount),0),expense=movements.filter(m=>m.movement_type==='expense').reduce((a,m)=>a+Number(m.amount),0),adjustment=movements.filter(m=>m.movement_type==='adjustment').reduce((a,m)=>a+Number(m.amount),0),computedExpected=Number(c.opening_amount)+income-expense+adjustment,expected=c.expected_amount==null?computedExpected:Number(c.expected_amount);return {id:c.id,branchId:c.branch_id,branch:db.branches.find(b=>b.id===c.branch_id)?.city||'Sucursal',date:new Date(c.opened_at).toLocaleDateString('es-CL'),rawDate:c.opened_at,opening:Number(c.opening_amount),income,expense,adjustment,closing:c.closing_amount==null?null:Number(c.closing_amount),expected,difference:c.difference_amount==null?(c.closing_amount==null?null:Number(c.closing_amount)-expected):Number(c.difference_amount),status:c.status,notes:c.notes||c.status}});const {data:members,error:membersError}=await client.from('company_members').select('id,user_id,role,status,branch_id,created_at').eq('company_id',activeCompany.id).order('created_at',{ascending:true});if(membersError)throw membersError;const memberIds=(members||[]).map(m=>m.user_id);let profileRows=[];if(memberIds.length){const {data:profiles,error:profilesError}=await client.from('profiles').select('id,full_name,phone').in('id',memberIds);if(profilesError&&profilesError.code!=='42501')throw profilesError;profileRows=profiles||[];}const actorRole=(members||[]).find(m=>m.user_id===activeUser?.id)?.role||'viewer';db.users=(members||[]).map(m=>{const profile=profileRows.find(p=>p.id===m.user_id);return {id:m.id,authUserId:m.user_id,name:profile?.full_name||(m.user_id===activeUser?.id?(activeUser.email||'Mi cuenta'):'Usuario vinculado'),email:m.user_id===activeUser?.id?(activeUser.email||''):'',role:m.role,branch:db.branches.find(b=>b.id===m.branch_id)?.name||'Todas / sin asignar',branchId:m.branch_id||'',status:({active:'Activo',invited:'Invitado',suspended:'Suspendido'}[m.status]||m.status),rawStatus:m.status,canManage:['owner','admin'].includes(actorRole)&&m.user_id!==activeUser?.id};});db.incidents.forEach(i=>{i.responsible=db.users.find(u=>u.authUserId===i.assignedTo)?.name||(i.assignedTo?'Usuario asignado':'Sin asignar')});db.deliveryAttempts=(deliveries.data||[]).map(d=>({id:d.id,shipmentId:d.shipment_id,code:db.shipments.find(s=>s.id===d.shipment_id)?.code||'—',driverId:d.driver_id||null,attemptNumber:Number(d.attempt_number||1),status:d.status,failureReason:d.failure_reason||'',nextAttemptAt:d.next_attempt_at||null,rescheduledAt:d.rescheduled_at||null,rescheduledBy:d.rescheduled_by||null,date:d.delivered_at||d.created_at,notes:d.notes||''}));db.deliveryProofs=(deliveries.data||[]).filter(d=>d.status==='delivered').map(d=>({id:d.id,shipmentId:d.shipment_id,code:db.shipments.find(s=>s.id===d.shipment_id)?.code||'—',receivedBy:d.recipient_name||'',recipientDocument:d.recipient_document||'',date:d.delivered_at||null,notes:d.notes||'',kind:'Completa',evidence:(d.delivery_evidence||[]).map(e=>({type:e.evidence_type,path:e.storage_path,description:e.description,capturedAt:e.captured_at}))}));(deliveries.data||[]).filter(d=>d.status==='delivered').forEach(d=>{const sh=db.shipments.find(s=>s.id===d.shipment_id);if(sh){sh.deliveryEvidence={receivedBy:d.recipient_name||'',recipientDocument:d.recipient_document||'',notes:d.notes||'',date:d.delivered_at||null,deliveryId:d.id,evidence:(d.delivery_evidence||[]).map(e=>({type:e.evidence_type,path:e.storage_path}))}}});
  }
  async function onSession(session){if(!session?.user){gate.style.display='grid';return;}try{msg('Cargando datos de la empresa…');await loadWorkspace(session.user);}catch(e){gate.style.display='grid';await authError(e);}}
- $('dxSignIn').onclick=async()=>{msg('Validando credenciales…');const {data,error}=await client.auth.signInWithPassword({email:$('dxEmail').value.trim(),password:$('dxPassword').value});if(error)return authError(error);await onSession(data.session);};
- $('dxSignUp').onclick=async()=>{msg('Creando cuenta…');const {data,error}=await client.auth.signUp({email:$('dxEmail').value.trim(),password:$('dxPassword').value});if(error)return authError(error);if(!data.session){msg('Cuenta creada. Revisa tu correo para confirmar y luego inicia sesión.');return;}await onSession(data.session);};
+ $('dxSignIn').onclick=async()=>{
+  const button=$('dxSignIn');
+  const email=$('dxEmail').value.trim(),password=$('dxPassword').value;
+  if(!email||!password){msg('Introduce tu correo electrónico y contraseña.');return;}
+  button.disabled=true;button.textContent='Verificando…';msg('Validando credenciales…');
+  try{
+   const {data,error}=await client.auth.signInWithPassword({email,password});
+   if(error)throw error;
+   await onSession(data.session);
+  }catch(error){await authError(error);}
+  finally{button.disabled=false;button.textContent='Iniciar sesión';}
+ };
+ $('dxSignUp').onclick=async()=>{
+  const button=$('dxSignUp');
+  const email=$('dxEmail').value.trim(),password=$('dxPassword').value;
+  if(!email||!password){msg('Introduce tu correo electrónico y una contraseña.');return;}
+  button.disabled=true;button.textContent='Creando…';msg('Creando cuenta…');
+  try{
+   const {data,error}=await client.auth.signUp({email,password});
+   if(error)throw error;
+   if(!data.session){msg('Cuenta creada. Revisa tu correo para confirmar y luego inicia sesión.');return;}
+   await onSession(data.session);
+  }catch(error){await authError(error);}
+  finally{button.disabled=false;button.textContent='Crear cuenta';}
+ };
+ $('dxPassword').addEventListener('keydown',event=>{if(event.key==='Enter')$('dxSignIn').click();});
  $('dxCreateCompany').onclick=async()=>{const button=$('dxCreateCompany');try{const legal=$('dxLegalName').value.trim(),trade=$('dxTradeName').value.trim();if(!legal||!trade){msg('Completa razón social y nombre comercial.');return;}button.disabled=true;msg('Verificando sesión…');const {data:userData,error:userError}=await client.auth.getUser();if(userError)throw userError;if(!userData?.user)throw new Error('Tu sesión expiró. Inicia sesión nuevamente.');activeUser=userData.user;msg('Creando empresa de forma segura…');const {data,error}=await client.rpc('create_company_for_current_user',{p_legal_name:legal,p_trade_name:trade,p_tax_id:$('dxTaxId').value.trim()||null,p_phone:$('dxPhone').value.trim()||null});if(error)throw error;const company=Array.isArray(data)?data[0]:data;if(!company?.id)throw new Error('Supabase no devolvió la empresa creada.');activeCompany={id:company.id,trade_name:company.trade_name,legal_name:company.legal_name,currency_code:company.currency_code};await loadOperationalData();gate.style.display='none';if(typeof currentUser!=='undefined')currentUser={name:activeUser.email||'Usuario',role:'owner',branch:company.trade_name};if(typeof renderPage==='function')renderPage('dashboard');}catch(e){authError(e);}finally{button.disabled=false;}};
  $('dxSignOutSetup').onclick=async()=>{await client.auth.signOut();location.reload();};
  client.auth.onAuthStateChange((_event,session)=>{if(session?.user&&gate.style.display!=='none')setTimeout(()=>onSession(session),0);});
@@ -774,7 +835,15 @@ function opsTripCost(id){let t=db.trips.find(x=>x.id===id);if(!t)return;modal('R
   catch(e){toast('Conciliación incompleta: '+(e.message||'Error de Supabase')+'. Actualiza los datos antes de repetirla.');}
  };
  window.deltaExpressSupabase={client,getCompany:()=>activeCompany,refresh:loadOperationalData,signOut:async()=>{await client.auth.signOut();location.reload();},getShipmentEvents:async(shipmentId)=>{const {data,error}=await client.from("shipment_events").select("event_type,previous_status,new_status,description,location_text,created_at").eq("company_id",activeCompany.id).eq("shipment_id",shipmentId).order("created_at",{ascending:true});if(error)throw error;return data||[];}};
- (async()=>{const {data,error}=await client.auth.getSession();if(error)return authError(error);if(data.session)await onSession(data.session);})();
+ (async()=>{
+  try{
+   msg('Servicio de acceso listo. Verificando sesión…');
+   const {data,error}=await client.auth.getSession();
+   if(error)throw error;
+   if(data.session)await onSession(data.session);
+   else msg('Introduce tus credenciales para ingresar.');
+  }catch(error){await authError(error);}
+ })();
 })();
 // Gestión real de miembros: el servidor vuelve a validar cada cambio mediante RLS.
 window.inviteCompanyMember=async function(){const api=window.deltaExpressSupabase,company=api?.getCompany();if(!api||!company){toast('Inicia sesión y selecciona una empresa.');return;}const {data:{user},error:userError}=await api.client.auth.getUser();if(userError||!user){toast('La sesión expiró. Inicia sesión nuevamente.');return;}const actor=db.users.find(x=>x.authUserId===user.id);if(!actor||!['owner','admin'].includes(actor.role)){toast('Solo el propietario o un administrador puede invitar usuarios.');return;}const roles=['manager','branch_manager','operator','dispatcher','driver','finance','support','viewer'];if(actor.role==='owner')roles.unshift('admin');const branchOptions=db.branches.map(b=>`<option value="${b.id}">${esc(b.name)}${b.city?' · '+esc(b.city):''}</option>`).join('');const body=`<div class="formgrid"><div class="field wide"><label>Nombre completo</label><input id="inviteName" autocomplete="name" placeholder="Nombre y apellido"></div><div class="field wide"><label>Correo electrónico *</label><input id="inviteEmail" type="email" autocomplete="email" placeholder="usuario@empresa.cl" required></div><div class="field wide"><label>Rol de acceso *</label><select id="inviteRole">${roles.map(r=>`<option value="${r}">${r}</option>`).join('')}</select></div><div class="field wide"><label>Sucursal asignada *</label><select id="inviteBranch"><option value="">Selecciona una sucursal</option>${branchOptions}</select></div></div><p class="notice">Los perfiles operativos deben tener una sucursal asignada. Los administradores tienen alcance general de empresa. Supabase Auth enviará el correo de invitación.</p>`;modal('Invitar usuario a Delta-Express',body,async()=>{const email=document.getElementById('inviteEmail').value.trim().toLowerCase(),full_name=document.getElementById('inviteName').value.trim(),role=document.getElementById('inviteRole').value,branch_id=document.getElementById('inviteBranch').value||null;if(!/^\S+@\S+\.\S+$/.test(email)){toast('Introduce un correo electrónico válido.');return;}if(role!=='admin'&&!branch_id){toast('Selecciona la sucursal del nuevo usuario.');return;}try{const {data,error}=await api.client.functions.invoke('invite-company-member',{body:{email,full_name,role,branch_id,company_id:company.id}});if(error)throw error;if(data?.error)throw new Error(data.error);await api.refresh();renderEntity('users');closeModal();toast('Invitación enviada a '+email+'.');}catch(e){toast('No se pudo completar la invitación: '+(e.message||'Error de Supabase'));}});};
