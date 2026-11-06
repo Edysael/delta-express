@@ -86,11 +86,43 @@
  };
  document.addEventListener('DOMContentLoaded',()=>{if(isDriver())window.refreshDriverMobile(false);});
 
+
+ let geofenceBranches=[],geofenceStates=new Map();
+ const metersBetween=(a,b,c,d)=>{
+  const rad=x=>x*Math.PI/180,R=6371000,p1=rad(a),p2=rad(c),dp=rad(c-a),dl=rad(d-b);
+  const h=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
+  return 2*R*Math.atan2(Math.sqrt(h),Math.sqrt(1-h));
+ };
+ async function loadGeofenceBranches(){
+  const a=api(),c=company();if(!a||!c)return;
+  const {data,error}=await a.client.from('branches').select('id,name,code,latitude,longitude,geofence_radius_m').eq('company_id',c.id).eq('is_active',true).not('latitude','is',null).not('longitude','is',null);
+  if(error)throw error;
+  geofenceBranches=(data||[]).filter(b=>Number.isFinite(Number(b.latitude))&&Number.isFinite(Number(b.longitude)));
+  geofenceStates=new Map();
+ }
+ async function detectGeofences(pos){
+  if(!geofenceBranches.length||!liveDriver)return;
+  const p=pos.coords,a=api(),c=company();
+  for(const b of geofenceBranches){
+   const distance=metersBetween(p.latitude,p.longitude,Number(b.latitude),Number(b.longitude));
+   const inside=distance<=Number(b.geofence_radius_m||150),prior=geofenceStates.get(b.id);
+   if(prior===undefined){geofenceStates.set(b.id,inside);continue;}
+   if(prior===inside)continue;
+   geofenceStates.set(b.id,inside);
+   const {error}=await a.client.from('driver_geofence_events').insert({company_id:c.id,driver_id:liveDriver.id,branch_id:b.id,event_type:inside?'arrived':'departed',latitude:p.latitude,longitude:p.longitude,distance_m:Math.round(distance*100)/100,occurred_at:new Date(pos.timestamp||Date.now()).toISOString()});
+   if(error){console.warn('Geocerca:',error);continue;}
+   const msg=(inside?'Llegada detectada a ':'Salida detectada de ')+(b.name||b.code);
+   const label=document.getElementById('dxGpsStatus');if(label)label.textContent=msg+' · '+new Date().toLocaleTimeString('es-CL');
+   window.toast?.(msg);
+  }
+ }
+
  let gpsWatchId=null,lastGpsSent=0;
  async function saveGpsPosition(pos){
   const a=api(),c=company();if(!a||!c||!liveDriver)return;
   const now=Date.now();if(now-lastGpsSent<45000)return;lastGpsSent=now;
   const p=pos.coords;
+  await detectGeofences(pos);
   const {data:u,error:ue}=await a.client.auth.getUser();if(ue)throw ue;if(!u?.user)throw new Error('Sesión vencida');
   const {error}=await a.client.from('driver_location_pings').insert({company_id:c.id,driver_id:liveDriver.id,latitude:p.latitude,longitude:p.longitude,accuracy_m:p.accuracy??null,speed_mps:p.speed??null,heading_deg:p.heading??null,captured_at:new Date(pos.timestamp||now).toISOString()});
   if(error)throw error;
@@ -103,7 +135,7 @@
   host.parentNode?.insertBefore(panel,host);
   panel.querySelector('#dxGpsStart').onclick=async()=>{
    if(!navigator.geolocation){window.toast?.('Este dispositivo no admite geolocalización.');return;}
-   try{await loadAssigned();}catch(e){window.toast?.(e.message);return;}if(!liveDriver)return;
+   try{await loadAssigned();await loadGeofenceBranches();}catch(e){window.toast?.(e.message);return;}if(!liveDriver)return;
    navigator.geolocation.getCurrentPosition(async pos=>{
     try{lastGpsSent=0;await saveGpsPosition(pos);}catch(e){window.toast?.('No se pudo guardar la ubicación: '+e.message);return;}
     if(gpsWatchId!==null)navigator.geolocation.clearWatch(gpsWatchId);
