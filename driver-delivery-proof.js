@@ -37,6 +37,7 @@
    if(!['image/jpeg','image/png','image/webp'].includes(photo.type)||photo.size>12*1024*1024){status.textContent='La fotografía debe ser JPG, PNG o WEBP y no superar 12 MB.';return;}
    btn.disabled=true;btn.textContent='Guardando evidencia…';status.textContent='Obteniendo ubicación y preparando archivos…';
    const uploaded=[];
+   let deliveryCommitted=false;
    try{
     const {data:userData,error:userErr}=await a.client.auth.getUser();if(userErr)throw userErr;const user=userData?.user;if(!user)throw new Error('La sesión expiró.');
     const {data:driver,error:driverErr}=await a.client.from('drivers').select('id').eq('company_id',c.id).eq('user_id',user.id).single();if(driverErr)throw driverErr;
@@ -58,11 +59,23 @@
     const now=new Date().toISOString();
     const upd=await a.client.from('deliveries').update({status:'delivered',recipient_name:recipient,recipient_document:doc||null,delivered_at:now,latitude:coords.latitude,longitude:coords.longitude,notes:'Entrega confirmada con fotografía, firma y geolocalización.'}).eq('id',deliveryId).eq('company_id',c.id).eq('driver_id',driver.id).select('id').maybeSingle();
     if(upd.error)throw upd.error;if(!upd.data)throw new Error('La evidencia se guardó, pero no se pudo finalizar la entrega por permisos. Contacta al administrador; no repitas el comprobante.');
-    const ship=await a.client.from('shipments').update({status:'delivered',delivered_at:now}).eq('id',shipment.id).eq('company_id',c.id);if(ship.error)console.warn('Estado de encomienda pendiente de sincronización:',ship.error);
-    const ev=await a.client.from('shipment_events').insert({company_id:c.id,shipment_id:shipment.id,event_type:'delivered',previous_status:'out_for_delivery',new_status:'delivered',description:'Entrega confirmada por '+recipient+' con fotografía, firma y geolocalización.',branch_id:delivery.branch_id,created_by:user.id,event_data:{source:'driver_mobile',delivery_id:deliveryId,recipient_name:recipient,recipient_document:doc||null,latitude:coords.latitude,longitude:coords.longitude,evidence_paths:uploaded}});
-    if(ev.error)console.warn('Evento de seguimiento no guardado:',ev.error);
+    deliveryCommitted=true;
+    const ship=await a.client.from('shipments').update({status:'delivered',delivered_at:now}).eq('id',shipment.id).eq('company_id',c.id).select('id').maybeSingle();
+    if(ship.error)throw new Error('La entrega quedó confirmada, pero no se pudo sincronizar el estado de la encomienda: '+ship.error.message);
+    if(!ship.data)throw new Error('La entrega quedó confirmada, pero no se encontró la encomienda para sincronizar su estado.');
+    const existingEvent=await a.client.from('shipment_events').select('id').eq('company_id',c.id).eq('shipment_id',shipment.id).eq('event_type','delivered').contains('event_data',{delivery_id:deliveryId}).limit(1).maybeSingle();
+    if(existingEvent.error)throw new Error('La entrega quedó confirmada, pero no se pudo verificar el historial: '+existingEvent.error.message);
+    if(!existingEvent.data){
+     const ev=await a.client.from('shipment_events').insert({company_id:c.id,shipment_id:shipment.id,event_type:'delivered',previous_status:'out_for_delivery',new_status:'delivered',description:'Entrega confirmada por '+recipient+' con fotografía, firma y geolocalización.',branch_id:delivery.branch_id,created_by:user.id,event_data:{source:'driver_mobile',delivery_id:deliveryId,recipient_name:recipient,recipient_document:doc||null,latitude:coords.latitude,longitude:coords.longitude,evidence_paths:uploaded}});
+     if(ev.error)throw new Error('La entrega quedó confirmada, pero no se pudo registrar el historial: '+ev.error.message);
+    }
     shipment.status='Entregada';shipment.deliveryStatus='delivered';modal.remove();window.toast?.('Entrega confirmada. Comprobante digital guardado.');await window.refreshDriverMobile?.(false);window.renderDriverApp?.();
-   }catch(e){status.textContent='No se pudo completar: '+(e.message||'Error inesperado');btn.disabled=false;btn.textContent='Reintentar guardado';console.error('Delta-Express POD:',e);}
+   }catch(e){
+    status.textContent=(deliveryCommitted?'ENTREGA CONFIRMADA. ':'')+(uploaded.length?'Ya se guardó parte o toda la evidencia; no vuelvas a enviar el comprobante. ':'No se pudo completar: ')+(e.message||'Error inesperado');
+    if(deliveryCommitted||uploaded.length){btn.disabled=true;btn.textContent=deliveryCommitted?'Entrega confirmada':'Requiere revisión del administrador';}
+    else{btn.disabled=false;btn.textContent='Reintentar guardado';}
+    console.error('Delta-Express POD:',e);
+   }
   };
  }
  const prev=window.renderDriverApp;window.renderDriverApp=function(){if(typeof prev==='function')prev();renderProofPanel();};
