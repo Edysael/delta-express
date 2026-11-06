@@ -16,12 +16,12 @@
    <div class="tile"><h4 style="margin-top:0">Buscar seguimiento</h4><div style="display:flex;gap:8px;flex-wrap:wrap"><input id="dxOpsTrack" placeholder="Código de seguimiento" style="flex:1;min-width:180px"><button class="btn primary small" id="dxOpsTrackBtn">Consultar</button></div><div id="dxOpsTrackResult" style="margin-top:10px"></div></div>
    <div class="tile"><h4 style="margin-top:0">Alertas operativas</h4><div id="dxOpsAlerts" class="muted">Calculando alertas…</div></div>
   </div>
-  <div style="margin-top:16px"><div class="cardtitle"><h4>Entregas recientes</h4><span class="muted" id="dxOpsCount"></span></div><div class="tablewrap"><table class="table" id="dxOpsTable"><thead><tr><th>Seguimiento</th><th>Estado</th><th>Conductor</th><th>Sucursal</th><th>Último cambio</th><th>Antigüedad</th><th>Evidencia</th></tr></thead><tbody><tr><td colspan="7">Cargando…</td></tr></tbody></table></div></div>
+  <div style="margin-top:16px"><div class="cardtitle"><h4>Entregas recientes</h4><span class="muted" id="dxOpsCount"></span></div><div class="tablewrap"><table class="table" id="dxOpsTable"><thead><tr><th>Seguimiento</th><th>Estado</th><th>Conductor</th><th>Sucursal</th><th>Último cambio</th><th>Antigüedad</th><th>Evidencia</th><th>Acciones</th></tr></thead><tbody><tr><td colspan="8">Cargando…</td></tr></tbody></table></div></div>
   <div class="grid cols" style="margin-top:16px;gap:14px"><div class="tile"><h4 style="margin-top:0">Entregas por conductor</h4><div id="dxOpsDrivers" class="muted">—</div></div><div class="tile"><h4 style="margin-top:0">Entregas por sucursal</h4><div id="dxOpsBranches" class="muted">—</div></div></div>`;
   p.querySelector('#dxOpsRefresh').onclick=()=>load(true);
   p.querySelector('#dxOpsTrackBtn').onclick=()=>track(p.querySelector('#dxOpsTrack').value.trim());
   p.querySelector('#dxOpsTrack').addEventListener('keydown',e=>{if(e.key==='Enter')track(e.currentTarget.value.trim());});
-  p.querySelector('#dxOpsTable').addEventListener('click',e=>{const b=e.target.closest('[data-evidence]');if(b)showEvidence(b.dataset.evidence);});
+  p.querySelector('#dxOpsTable').addEventListener('click',e=>{const b=e.target.closest('[data-evidence]');if(b){showEvidence(b.dataset.evidence);return;}const r=e.target.closest('[data-retry]');if(r){if(typeof window.scheduleDeliveryRetry==='function')window.scheduleDeliveryRetry(r.dataset.retry);else alert('La función de reprogramación no está disponible.');return;}const rt=e.target.closest('[data-return]');if(rt){if(typeof window.confirmReturnToBranch==='function')window.confirmReturnToBranch(rt.dataset.return);else alert('La función de retorno no está disponible.');return;}});
  }
  async function load(force){
   if(busy)return;const p=host();if(!p)return;if(!p.querySelector('#dxOpsRefresh'))renderShell(p);
