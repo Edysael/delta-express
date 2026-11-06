@@ -3,7 +3,7 @@
  'use strict';
  const api=()=>window.deltaExpressSupabase;
  const company=()=>api()?.getCompany?.();
- const isDriver=()=>['driver','transportista'].includes(String(window.currentUser?.role||'').toLowerCase());
+ const isDriver=()=>['driver','transportista'].includes(String(currentUser?.role||'').toLowerCase());
  let liveShipments=[];
  let liveDriver=null;
  const statusLabel={assigned:'Asignada',in_progress:'En reparto',delivered:'Entregada',failed:'Intento fallido',rescheduled:'Reprogramada',returned:'Devuelta'};
@@ -24,7 +24,7 @@
   const ids=new Set(),codes=new Set();
   (m.data||[]).forEach(x=>(x.manifest_shipments||[]).forEach(z=>{if(z.shipments?.id)ids.add(z.shipments.id);if(z.shipments?.tracking_code)codes.add(z.shipments.tracking_code)}));
   (dl.data||[]).forEach(x=>ids.add(x.shipment_id));
-  liveShipments=(window.db?.shipments||[]).filter(s=>ids.has(s.id)||codes.has(s.code));
+  liveShipments=(db?.shipments||[]).filter(s=>ids.has(s.id)||codes.has(s.code));
   liveShipments.forEach(s=>{
    const records=(dl.data||[]).filter(x=>x.shipment_id===s.id);
    const latest=records[0];
@@ -60,7 +60,7 @@
   if(!liveDriver) window.refreshDriverMobile(false);
  };
  window.driverMobileUpdate=async function(code,status){
-  const a=api(),c=company(),s=(window.db?.shipments||[]).find(x=>x.code===code);
+  const a=api(),c=company(),s=(db?.shipments||[]).find(x=>x.code===code);
   if(!a||!c||!s?.id){window.toast?.('No se encontró una encomienda válida en Supabase.');return;}
   if(status!=='En reparto'){window.toast?.('Desde esta acción solo se permite iniciar el reparto. La entrega final requiere registrar su evidencia.');return;}
   try{
