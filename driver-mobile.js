@@ -3,7 +3,7 @@
  'use strict';
  const api=()=>window.deltaExpressSupabase;
  const company=()=>api()?.getCompany?.();
- const isDriver=()=>['driver','transportista'].includes(String(currentUser?.role||'').toLowerCase());
+ const isDriver=()=>['driver','transportista','conductor'].includes(String(currentUser?.role||'').toLowerCase()) || /transportista|conductor/i.test(String(currentUser?.role||''));
  let liveShipments=[];
  let liveDriver=null;
  const statusLabel={assigned:'Asignada',in_progress:'En reparto',delivered:'Entregada',failed:'Intento fallido',rescheduled:'Reprogramada',returned:'Devuelta'};
@@ -116,5 +116,24 @@
  }
  const priorRenderGps=window.renderDriverApp;
  window.renderDriverApp=function(){if(typeof priorRenderGps==='function')priorRenderGps();if(isDriver())renderGpsControls();};
+
+
+ async function renderFleetLivePanel(){
+  const dashboard=document.getElementById('dashboard');if(!dashboard)return;
+  let panel=document.getElementById('dxFleetLivePanel');
+  if(!panel){panel=document.createElement('div');panel.id='dxFleetLivePanel';panel.className='card';panel.style.cssText='margin-top:14px;padding:14px';dashboard.appendChild(panel);}
+  panel.innerHTML='<div class="cardtitle"><h3>Seguimiento de conductores</h3><button class="btn small" id="dxFleetRefresh">↻ Actualizar</button></div><p class="muted">Últimas posiciones GPS recibidas de los conductores que activaron el seguimiento.</p><div id="dxFleetRows">Consultando posiciones...</div>';
+  panel.querySelector('#dxFleetRefresh').onclick=renderFleetLivePanel;
+  try{
+   const a=api(),c=company();if(!a||!c)throw new Error('No hay empresa activa');
+   const {data,error}=await a.client.from('driver_location_pings').select('id,driver_id,latitude,longitude,accuracy_m,speed_mps,captured_at,drivers(full_name,phone)').eq('company_id',c.id).order('captured_at',{ascending:false}).limit(100);
+   if(error)throw error;
+   const latest=new Map();(data||[]).forEach(p=>{if(!latest.has(p.driver_id))latest.set(p.driver_id,p)});
+   const rows=[...latest.values()];
+   panel.querySelector('#dxFleetRows').innerHTML=rows.length?'<div style="overflow:auto"><table class="table"><thead><tr><th>Conductor</th><th>Última señal</th><th>Precisión</th><th>Ubicación</th></tr></thead><tbody>'+rows.map(p=>'<tr><td>'+String(p.drivers?.full_name||'Conductor').replace(/[&<>"]/g,'')+'</td><td>'+new Date(p.captured_at).toLocaleString('es-CL')+'</td><td>'+Math.round(Number(p.accuracy_m)||0)+' m</td><td><a target="_blank" rel="noopener" href="https://www.google.com/maps?q='+encodeURIComponent(p.latitude+','+p.longitude)+'">Abrir mapa ↗</a></td></tr>').join('')+'</tbody></table></div>':'<div class="empty">Todavía no hay posiciones GPS registradas. El conductor debe iniciar el seguimiento desde su teléfono.</div>';
+  }catch(e){panel.querySelector('#dxFleetRows').innerHTML='<div class="notice">No fue posible consultar el seguimiento: '+String(e.message||e).replace(/[&<>"]/g,'')+'. Comprueba que tu perfil tenga permisos de administración.</div>';}
+ }
+ const previousDashboard=window.renderDashboard;
+ window.renderDashboard=function(){if(typeof previousDashboard==='function')previousDashboard();if(!isDriver())renderFleetLivePanel();};
 
 })();
