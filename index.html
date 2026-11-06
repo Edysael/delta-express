@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="es">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#081630"><meta name="application-name" content="Delta-Express"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Delta-Express"><meta name="mobile-web-app-capable" content="yes"><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" type="image/svg+xml" href="/icons/delta-express.svg"><link rel="apple-touch-icon" href="/icons/delta-express.svg">
 <title>Delta-Express | Plataforma integral de gestión logística</title>
 <style>
 :root{color-scheme:dark;--bg:#050d1d;--bg2:#081630;--panel:#0c1d3b;--panel2:#10264b;--line:#203b68;--text:#f4f7ff;--muted:#9aaccb;--blue:#1677ff;--cyan:#18d9e8;--purple:#713cff;--green:#10d6a0;--orange:#ff9f1c;--pink:#f34ca8;--red:#ff557b;--shadow:0 14px 38px #02081780}
@@ -1466,5 +1466,13 @@ async function viewIncidentHistory(id){
   });
  };
 })();
+</script>
+<script>
+/* PWA: registra el service worker sin interceptar autenticación ni datos de Supabase. */
+if ("serviceWorker" in navigator) {
+ window.addEventListener("load", () => {
+  navigator.serviceWorker.register("/service-worker.js").catch(err => console.warn("No se pudo registrar el service worker:", err));
+ });
+}
 </script>
 </body></html>
