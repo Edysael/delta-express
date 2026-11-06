@@ -197,8 +197,8 @@ const seed={
  cash:[{id:"cc1",branch:"Talca",date:today(),opening:50000,income:12990,expense:0,closing:62990,notes:"Cierre de demostración"}],
  audit:[],settings:{company:"Delta-Express",commercial:"Delta-Express",taxid:"",address:"",phone:"",email:"",currency:"CLP",symbol:"$",tax:19,services:["Estándar","Express","Retiro en agencia"],notifyEmail:"",whatsapp:"",events:"Recepción, despacho, llegada a destino y entrega."}
 };
-let db=loadDB(),currentPage="dashboard",currentUser={name:"Administrador",role:"Administrador general",branch:"Todas"},modalAction=null;
-// Compartir el mismo estado con el módulo de autenticación, cargado en otro script.
+var db=loadDB(),currentPage="dashboard",currentUser={name:"Administrador",role:"Administrador general",branch:"Todas"},modalAction=null;
+// Estado global explícito para todos los módulos clásicos y Safari.
 window.db=db;
 // Normalización de esquema: permite abrir respaldos/versiones anteriores sin perder módulos nuevos.
 function migrateDB(){
