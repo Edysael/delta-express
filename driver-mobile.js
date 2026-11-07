@@ -122,10 +122,12 @@
   const a=api(),c=company();if(!a||!c||!liveDriver)return;
   const now=Date.now();if(now-lastGpsSent<45000||gpsSaveInFlight)return;gpsSaveInFlight=true;
   const p=pos.coords;
-  await detectGeofences(pos);
-  const {data:u,error:ue}=await a.client.auth.getUser();if(ue)throw ue;if(!u?.user)throw new Error('Sesión vencida');
-  const {error}=await a.client.from('driver_location_pings').insert({company_id:c.id,driver_id:liveDriver.id,latitude:p.latitude,longitude:p.longitude,accuracy_m:p.accuracy??null,speed_mps:p.speed??null,heading_deg:p.heading??null,captured_at:new Date(pos.timestamp||now).toISOString()});
-  if(error){gpsSaveInFlight=false;throw error;}lastGpsSent=Date.now();gpsSaveInFlight=false;
+  try{
+   await detectGeofences(pos);
+   const {data:u,error:ue}=await a.client.auth.getUser();if(ue)throw ue;if(!u?.user)throw new Error('Sesión vencida');
+   const {error}=await a.client.from('driver_location_pings').insert({company_id:c.id,driver_id:liveDriver.id,latitude:p.latitude,longitude:p.longitude,accuracy_m:p.accuracy??null,speed_mps:p.speed??null,heading_deg:p.heading??null,captured_at:new Date(pos.timestamp||now).toISOString()});
+   if(error)throw error;lastGpsSent=Date.now();
+  }catch(e){gpsSaveInFlight=false;throw e;}gpsSaveInFlight=false;
   const label=document.getElementById('dxGpsStatus');if(label)label.textContent='GPS activo · precisión '+Math.round(p.accuracy||0)+' m · última señal '+new Date().toLocaleTimeString('es-CL');
  }
  function renderGpsControls(){
