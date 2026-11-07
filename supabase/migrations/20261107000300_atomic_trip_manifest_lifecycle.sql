@@ -15,6 +15,8 @@ DECLARE
   v_manifest public.manifests%ROWTYPE;
   v_route public.routes%ROWTYPE;
   v_next_route_status text;
+  v_expected integer;
+  v_updated integer;
   v_now timestamptz := now();
 BEGIN
   IF v_user IS NULL THEN
@@ -72,6 +74,27 @@ BEGIN
       v_next_route_status := 'in_progress';
       UPDATE public.manifests SET status='dispatched', dispatched_at=v_now
       WHERE id=p_manifest_id AND company_id=p_company_id AND status='sealed';
+      SELECT count(*) INTO v_expected FROM public.manifest_shipments
+      WHERE company_id=p_company_id AND manifest_id=p_manifest_id;
+      IF v_expected=0 THEN RAISE EXCEPTION 'El manifiesto no contiene encomiendas'; END IF;
+      UPDATE public.shipments SET status='dispatched',updated_at=v_now
+      WHERE company_id=p_company_id AND id IN (
+        SELECT shipment_id FROM public.manifest_shipments
+        WHERE company_id=p_company_id AND manifest_id=p_manifest_id
+      ) AND status='sorting';
+      GET DIAGNOSTICS v_updated=ROW_COUNT;
+      IF v_updated<>v_expected THEN
+        RAISE EXCEPTION 'No todas las encomiendas están en clasificación; despacho cancelado';
+      END IF;
+      UPDATE public.shipments SET status='in_transit',updated_at=v_now
+      WHERE company_id=p_company_id AND id IN (
+        SELECT shipment_id FROM public.manifest_shipments
+        WHERE company_id=p_company_id AND manifest_id=p_manifest_id
+      ) AND status='dispatched';
+      GET DIAGNOSTICS v_updated=ROW_COUNT;
+      IF v_updated<>v_expected THEN
+        RAISE EXCEPTION 'No se pudo activar el tránsito de todas las encomiendas';
+      END IF;
     WHEN 'cancelled' THEN
       IF v_manifest.status NOT IN ('draft','sealed') OR v_route.status NOT IN ('planned','ready') THEN
         RAISE EXCEPTION 'Este viaje ya no se puede cancelar desde su estado actual';
