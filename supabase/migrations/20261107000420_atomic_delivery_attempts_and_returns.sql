@@ -44,7 +44,7 @@ CREATE OR REPLACE FUNCTION public.reschedule_delivery_attempt(
 ) RETURNS jsonb
 LANGUAGE plpgsql SET search_path TO ''
 AS $function$
-DECLARE v_user uuid:=auth.uid(); v_delivery public.deliveries%ROWTYPE;
+DECLARE v_user uuid:=auth.uid(); v_delivery public.deliveries%ROWTYPE; v_shipment public.shipments%ROWTYPE; v_driver public.drivers%ROWTYPE;
 BEGIN
  IF v_user IS NULL THEN RAISE EXCEPTION 'Debe iniciar sesión'; END IF;
  IF p_next_attempt_at IS NULL OR p_next_attempt_at<=now() THEN RAISE EXCEPTION 'La nueva visita debe ser futura'; END IF;
@@ -55,15 +55,21 @@ BEGIN
    OR private.can_access_shipment(p_company_id,v_delivery.shipment_id)) THEN
   RAISE EXCEPTION 'No tiene permisos para reprogramar este intento';
  END IF;
- IF NOT EXISTS(SELECT 1 FROM public.drivers d WHERE d.id=p_driver_id AND d.company_id=p_company_id AND d.status='active') THEN
-  RAISE EXCEPTION 'El conductor seleccionado no está activo en esta empresa';
+ SELECT * INTO v_shipment FROM public.shipments WHERE id=v_delivery.shipment_id AND company_id=p_company_id FOR UPDATE;
+ IF NOT FOUND OR v_shipment.status<>'delivery_failed' THEN RAISE EXCEPTION 'La encomienda no está pendiente de reintento'; END IF;
+ SELECT * INTO v_driver FROM public.drivers d WHERE d.id=p_driver_id AND d.company_id=p_company_id AND d.status='active';
+ IF NOT FOUND OR (v_driver.branch_id IS NOT NULL AND v_driver.branch_id<>v_shipment.destination_branch_id) THEN
+  RAISE EXCEPTION 'El conductor no está activo o no corresponde a la sucursal de destino';
  END IF;
  UPDATE public.deliveries SET status='rescheduled',driver_id=p_driver_id,
   next_attempt_at=p_next_attempt_at,rescheduled_at=now(),rescheduled_by=v_user,
   notes=NULLIF(btrim(p_notes),''),updated_at=now()
  WHERE id=p_delivery_id AND company_id=p_company_id AND status='failed';
  IF NOT FOUND THEN RAISE EXCEPTION 'No se pudo reprogramar el intento'; END IF;
- RETURN jsonb_build_object('delivery_id',p_delivery_id,'status','rescheduled','next_attempt_at',p_next_attempt_at);
+ UPDATE public.shipments SET status='out_for_delivery',updated_at=now()
+ WHERE id=v_shipment.id AND company_id=p_company_id AND status='delivery_failed';
+ IF NOT FOUND THEN RAISE EXCEPTION 'No se pudo reactivar la encomienda para el nuevo intento'; END IF;
+ RETURN jsonb_build_object('delivery_id',p_delivery_id,'status','rescheduled','shipment_status','out_for_delivery','next_attempt_at',p_next_attempt_at);
 END;
 $function$;
 
