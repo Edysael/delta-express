@@ -130,6 +130,15 @@
   }catch(e){gpsSaveInFlight=false;throw e;}gpsSaveInFlight=false;
   const label=document.getElementById('dxGpsStatus');if(label)label.textContent='GPS activo · precisión '+Math.round(p.accuracy||0)+' m · última señal '+new Date().toLocaleTimeString('es-CL');
  }
+ function stopGpsTracking(reason){
+  if(gpsWatchId!==null&&navigator.geolocation){navigator.geolocation.clearWatch(gpsWatchId);}
+  gpsWatchId=null;gpsStarting=false;
+  const panel=document.getElementById('dxGpsPanel');
+  const start=panel?.querySelector('#dxGpsStart'),stop=panel?.querySelector('#dxGpsStop');
+  if(start)start.disabled=false;if(stop)stop.disabled=true;
+  const label=document.getElementById('dxGpsStatus');
+  if(label)label.textContent=reason||'Seguimiento GPS detenido.';
+ }
  function renderGpsControls(){
   const host=document.getElementById('driverMobileRoute');if(!host||document.getElementById('dxGpsPanel'))return;
   const panel=document.createElement('section');panel.id='dxGpsPanel';panel.style.cssText='padding:12px;margin:0 0 12px;border:1px solid #cbd5e1;border-radius:12px';
@@ -140,14 +149,14 @@
    if(!navigator.geolocation){gpsStarting=false;panel.querySelector('#dxGpsStart').disabled=false;window.toast?.('Este dispositivo no admite geolocalización.');return;}
    try{await loadAssigned();await loadGeofenceBranches();}catch(e){gpsStarting=false;panel.querySelector('#dxGpsStart').disabled=false;window.toast?.(e.message);return;}if(!liveDriver){gpsStarting=false;panel.querySelector('#dxGpsStart').disabled=false;return;}
    navigator.geolocation.getCurrentPosition(async pos=>{
-    try{lastGpsSent=0;await saveGpsPosition(pos);}catch(e){window.toast?.('No se pudo guardar la ubicación: '+e.message);return;}
+    try{lastGpsSent=0;await saveGpsPosition(pos);}catch(e){gpsStarting=false;panel.querySelector('#dxGpsStart').disabled=false;window.toast?.('No se pudo guardar la ubicación: '+e.message);return;}
     if(gpsWatchId!==null)navigator.geolocation.clearWatch(gpsWatchId);
     gpsWatchId=navigator.geolocation.watchPosition(async p=>{try{await saveGpsPosition(p);}catch(e){console.warn('GPS Delta-Express:',e);}},err=>{const el=document.getElementById('dxGpsStatus');if(el)el.textContent='GPS interrumpido: '+err.message;},{enableHighAccuracy:true,maximumAge:15000,timeout:20000});
     gpsStarting=false;panel.querySelector('#dxGpsStart').disabled=true;panel.querySelector('#dxGpsStop').disabled=false;
     window.toast?.('Seguimiento GPS iniciado. Se guardará una posición aproximadamente cada 45 segundos.');
    },err=>{gpsStarting=false;panel.querySelector('#dxGpsStart').disabled=false;window.toast?.('No se pudo obtener la ubicación: '+err.message);},{enableHighAccuracy:true,maximumAge:0,timeout:20000});
   };
-  panel.querySelector('#dxGpsStop').onclick=()=>{if(gpsWatchId!==null)navigator.geolocation.clearWatch(gpsWatchId);gpsWatchId=null;gpsStarting=false;panel.querySelector('#dxGpsStart').disabled=false;panel.querySelector('#dxGpsStop').disabled=true;const el=document.getElementById('dxGpsStatus');if(el)el.textContent='Seguimiento GPS detenido por el conductor.';};
+  panel.querySelector('#dxGpsStop').onclick=()=>stopGpsTracking('Seguimiento GPS detenido por el conductor.');
  }
  const priorRenderGps=window.renderDriverApp;
  window.renderDriverApp=function(){if(typeof priorRenderGps==='function')priorRenderGps();if(isDriver())renderGpsControls();};
@@ -170,5 +179,14 @@
  }
  const previousDashboard=window.renderDashboard;
  window.renderDashboard=function(){if(typeof previousDashboard==='function')previousDashboard();if(!isDriver())renderFleetLivePanel();};
+
+ // Finaliza la vigilancia al cerrar la sesión o abandonar la página; no se detiene al cambiar de pestaña.
+ window.addEventListener('pagehide',()=>stopGpsTracking('Seguimiento GPS detenido al salir de la página.'),{once:true});
+ const authClient=api()?.client;
+ if(authClient?.auth?.onAuthStateChange){
+  authClient.auth.onAuthStateChange(event=>{
+   if(event==='SIGNED_OUT')stopGpsTracking('Seguimiento GPS detenido: sesión cerrada.');
+  });
+ }
 
 })();
