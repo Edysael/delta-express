@@ -34,6 +34,7 @@ AS $function$
 DECLARE
  v_user uuid:=auth.uid();
  v_shipment public.shipments%ROWTYPE;
+ v_existing public.deliveries%ROWTYPE;
  v_prior integer;
  v_remaining integer;
  v_attempt integer;
@@ -60,6 +61,17 @@ BEGIN
  WHERE id=p_shipment_id AND company_id=p_company_id FOR UPDATE;
  IF NOT FOUND OR v_shipment.status<>'out_for_delivery' THEN
   RAISE EXCEPTION 'La encomienda no está En reparto';
+ END IF;
+ SELECT * INTO v_existing FROM public.deliveries WHERE id=p_delivery_id AND company_id=p_company_id;
+ IF FOUND THEN
+  IF v_existing.shipment_id=p_shipment_id AND v_existing.status='partial'
+    AND v_existing.pieces_delivered=p_pieces_delivered AND v_existing.driver_id=p_driver_id THEN
+   RETURN jsonb_build_object('delivery_id',p_delivery_id,'shipment_id',p_shipment_id,
+    'status','partial','pieces_delivered',v_existing.pieces_delivered,
+    'pieces_total',v_shipment.pieces,'pieces_remaining',v_existing.pieces_remaining,
+    'attempt_number',v_existing.attempt_number,'idempotent',true);
+  END IF;
+  RAISE EXCEPTION 'El identificador de entrega parcial ya fue utilizado';
  END IF;
  IF p_branch_id IS NOT NULL AND p_branch_id<>v_shipment.destination_branch_id THEN
   RAISE EXCEPTION 'La sucursal no coincide con el destino';
