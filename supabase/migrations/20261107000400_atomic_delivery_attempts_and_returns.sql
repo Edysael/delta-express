@@ -10,7 +10,7 @@ DECLARE v_user uuid:=auth.uid(); v_shipment public.shipments%ROWTYPE;
  v_attempt integer; v_delivery public.deliveries%ROWTYPE;
 BEGIN
  IF v_user IS NULL THEN RAISE EXCEPTION 'Debe iniciar sesión'; END IF;
- IF p_failure_reason NOT IN ('recipient_absent','address_not_found','recipient_rejected','access_blocked','incorrect_address','other') THEN
+ IF p_failure_reason IS NULL OR p_failure_reason NOT IN ('recipient_absent','address_not_found','recipient_rejected','access_blocked','incorrect_address','other') THEN
   RAISE EXCEPTION 'Motivo de fallo no válido';
  END IF;
  IF NOT EXISTS(SELECT 1 FROM public.drivers d WHERE d.id=p_driver_id AND d.company_id=p_company_id AND d.user_id=v_user AND d.status='active') THEN
