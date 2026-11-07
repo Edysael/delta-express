@@ -419,7 +419,46 @@ async function driverMobileDeliver(code){
   canvas.addEventListener('pointerup',()=>drawing=false);canvas.addEventListener('pointercancel',()=>drawing=false);
  }
 }
-function driverMobilePartial(code){const s=db.shipments.find(x=>x.code===code);if(!s)return;if(s.status!=='En reparto'){toast('La entrega parcial requiere que la encomienda esté En reparto.');return}toast('La entrega parcial no está habilitada para registro definitivo: el servidor todavía no dispone de una operación transaccional para cantidades parciales y evidencia. No se guardó ningún cambio.');}
+async function driverMobilePartial(code){
+ const x=db.shipments.find(s=>s.code===code);if(!x)return;
+ if(x.status!=='En reparto'){toast('La entrega parcial requiere que la encomienda esté En reparto.');return}
+ const total=Math.max(1,Number(x.pieces)||1),prior=(db.deliveryAttempts||[]).filter(a=>a.shipmentId===x.id&&a.status==='partial').reduce((n,a)=>n+(Number(a.piecesDelivered)||0),0),remaining=total-prior;
+ if(remaining<=1){toast('Solo queda una pieza pendiente. Utiliza Confirmar entrega para completar el envío.');return}
+ const body=`<div class="formgrid"><div class="field"><label>Piezas totales</label><input value="${total}" disabled></div><div class="field"><label>Piezas pendientes</label><input value="${remaining}" disabled></div><div class="field"><label>Piezas entregadas ahora *</label><input id="dmPartialQty" type="number" min="1" max="${remaining-1}" value="1"></div><div class="field wide"><label>Nombre de quien recibe *</label><input id="dmPartialReceiver" placeholder="Nombre completo"></div><div class="field wide"><label>Documento (opcional)</label><input id="dmPartialDoc"></div><div class="field wide"><label>Firma de recepción</label><canvas id="dmPartialSignature" class="signature-pad" width="720" height="180"></canvas><button type="button" class="btn small" onclick="clearPartialDeliverySignature()">Limpiar firma</button></div><div class="field wide"><label>Fotografía (opcional)</label><input id="dmPartialPhoto" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"></div><div class="field wide"><label>Observaciones</label><textarea id="dmPartialNotes"></textarea></div></div><div class="notice">La encomienda seguirá En reparto hasta entregar todas las piezas.</div>`;
+ modal('Registrar entrega parcial · '+code,body,async()=>{
+  const qty=Number(document.getElementById('dmPartialQty').value),name=document.getElementById('dmPartialReceiver').value.trim(),doc=document.getElementById('dmPartialDoc').value.trim(),notes=document.getElementById('dmPartialNotes').value.trim(),canvas=document.getElementById('dmPartialSignature'),signed=canvas?.dataset.signed==='1',file=document.getElementById('dmPartialPhoto').files[0];
+  if(!Number.isInteger(qty)||qty<1||qty>=remaining){toast('La cantidad debe ser un número entero menor que las piezas pendientes.');return}
+  if(!name){toast('Indica quién recibió las piezas.');return}
+  if(file&&!['image/jpeg','image/png','image/webp'].includes(file.type)){toast('La fotografía debe ser JPG, PNG o WebP.');return}
+  if(file&&file.size>15*1024*1024){toast('La fotografía supera el límite de 15 MB.');return}
+  if(!signed&&!file&&!confirm('No hay firma ni fotografía. ¿Confirmas igualmente esta entrega parcial?'))return;
+  const api=window.deltaExpressSupabase,company=api?.getCompany();if(!api||!company||!x.id){toast('No hay una sesión o encomienda válida.');return}
+  const deliveryId=x.pendingPartialDeliveryId||(crypto.randomUUID?crypto.randomUUID():('xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&3|8)).toString(16)})));
+  x.pendingPartialDeliveryId=deliveryId;persist();let uploaded=[],evidenceRows=[];
+  try{
+   const {data:userData,error:userErr}=await api.client.auth.getUser();if(userErr||!userData.user)throw new Error('La sesión expiró.');
+   const {data:driverRow,error:driverError}=await api.client.from('drivers').select('id').eq('company_id',company.id).eq('user_id',userData.user.id).maybeSingle();
+   if(driverError)throw driverError;if(!driverRow)throw new Error('El usuario no está vinculado a un conductor.');
+   const branch=db.branches.find(b=>b.id===x.destinationBranchId)||null;
+   async function uploadPartial(kind,blob,description){
+    if(!blob)return;const ext=blob.type==='image/webp'?'webp':blob.type==='image/png'?'png':'jpg',path=`${company.id}/${x.id}/${deliveryId}/${kind}-${crypto.randomUUID?crypto.randomUUID():Date.now()}.${ext}`;
+    const {error}=await api.client.storage.from('delta-express-evidence').upload(path,blob,{contentType:blob.type||'image/png',upsert:false});if(error)throw error;
+    uploaded.push(path);evidenceRows.push({evidence_type:kind,storage_path:path,description,metadata:{tracking_code:code,mime_type:blob.type||'image/png',size_bytes:blob.size}});
+   }
+   if(signed){const blob=await(await fetch(canvas.toDataURL('image/png'))).blob();await uploadPartial('signature',blob,'Firma de recepción parcial')}
+   if(file){const compressed=await compressImageFile(file,1400,.72),blob=await(await fetch(compressed)).blob();await uploadPartial('photo',blob,'Fotografía de entrega parcial')}
+   const {data,error}=await api.client.rpc('record_partial_delivery',{p_company_id:company.id,p_shipment_id:x.id,p_delivery_id:deliveryId,p_driver_id:driverRow.id,p_branch_id:branch?.id||null,p_pieces_delivered:qty,p_recipient_name:name,p_recipient_document:doc||null,p_notes:notes||null,p_evidence:evidenceRows});
+   if(error)throw error;if(data?.delivery_id!==deliveryId||data?.status!=='partial')throw new Error('El servidor no confirmó la entrega parcial.');
+   delete x.pendingPartialDeliveryId;db.deliveryAttempts=db.deliveryAttempts||[];db.deliveryAttempts.unshift({id:deliveryId,shipmentId:x.id,code,driverId:driverRow.id,attemptNumber:data.attempt_number,status:'partial',piecesDelivered:qty,piecesRemaining:data.pieces_remaining,date:new Date().toISOString(),notes});
+   x.history=x.history||[];x.history.push({status:'Entrega parcial',date:today(),time:new Date().toLocaleTimeString('es-CL'),place:x.dest,user:userData.user.email||'Repartidor',notes:qty+' piezas entregadas; '+data.pieces_remaining+' pendientes. Recibió: '+name});
+   persist();try{await api.refresh()}catch(_){closeModal();renderDriverApp();toast('Entrega parcial guardada en Supabase. Recarga para sincronizar.');return}
+   closeModal();renderDriverApp();toast('Entrega parcial registrada: '+qty+' entregadas, '+data.pieces_remaining+' pendientes.');
+  }catch(e){toast('No se pudo registrar la entrega parcial: '+(e.message||'Error de sincronización')+(uploaded.length?' Los archivos subidos se conservaron para evitar borrar evidencias posiblemente vinculadas.':''))}
+ });
+ const canvas=document.getElementById('dmPartialSignature');if(canvas){const ctx=canvas.getContext('2d');let drawing=false;ctx.strokeStyle='#132344';ctx.lineWidth=4;ctx.lineCap='round';const point=e=>{const r=canvas.getBoundingClientRect();return{x:(e.clientX-r.left)*canvas.width/r.width,y:(e.clientY-r.top)*canvas.height/r.height}};canvas.addEventListener('pointerdown',e=>{drawing=true;canvas.setPointerCapture(e.pointerId);const p=point(e);ctx.beginPath();ctx.moveTo(p.x,p.y)});canvas.addEventListener('pointermove',e=>{if(!drawing)return;const p=point(e);ctx.lineTo(p.x,p.y);ctx.stroke();canvas.dataset.signed='1'});canvas.addEventListener('pointerup',()=>drawing=false);canvas.addEventListener('pointercancel',()=>drawing=false)}
+}
+function clearPartialDeliverySignature(){const c=document.getElementById('dmPartialSignature');if(c){c.getContext('2d').clearRect(0,0,c.width,c.height);delete c.dataset.signed}}
+
 function driverMobileReturn(code){const s=db.shipments.find(x=>x.code===code);if(!s)return;if(['Entregada','Devolución','Extraviada'].includes(s.status)){toast('No se puede devolver una encomienda en su estado actual.');return}toast('La devolución requiere una operación transaccional del servidor que registre el retorno, la entrega fallida y la incidencia con trazabilidad. Esta función aún no está habilitada; no se guardó ningún cambio.');}
 const _renderDriverAppComplete=renderDriverApp;
 renderDriverApp=function(){_renderDriverAppComplete();let host=document.getElementById('driverMobileRoute');if(!host)return;host.querySelectorAll('.driver-stop').forEach((node,i)=>{let code=node.querySelector('small:nth-child(2)')?.textContent.match(/DX-[A-Z0-9-]+/)?.[0];if(!code)return;let actions=node.querySelector('.driver-stop-actions');if(actions&&!actions.querySelector('[data-extra]')){let s=db.shipments.find(x=>x.code===code);if(s&&s.status!=='Entregada'){actions.insertAdjacentHTML('beforeend',`<button data-extra onclick="driverMobilePartial('${code}')">Entrega parcial</button><button data-extra onclick="driverMobileReturn('${code}')">Devolver</button>`)} }});};
