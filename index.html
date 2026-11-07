@@ -321,27 +321,18 @@ async function scheduleDeliveryRetry(deliveryId){const a=(db.deliveryAttempts||[
 async function confirmReturnToBranch(deliveryId){
  const a=(db.deliveryAttempts||[]).find(x=>x.id===deliveryId);
  if(!a){toast('No se encontró el intento.');return}
- const shipmentAttempts=(db.deliveryAttempts||[]).filter(x=>x.shipmentId===a.shipmentId&&['failed','rescheduled'].includes(x.status));
- if(shipmentAttempts.length<2||!['failed','rescheduled'].includes(a.status)){toast('El retorno a sucursal requiere al menos dos intentos de entrega fallidos registrados.');return}
- const sh=(db.shipments||[]).find(x=>x.id===a.shipmentId);
- if(!sh){toast('No se encontró la encomienda.');return}
- const api=window.deltaExpressSupabase,company=api?.getCompany();
- if(!api||!company){toast('No hay una sesión activa.');return}
+ const attempts=(db.deliveryAttempts||[]).filter(x=>x.shipmentId===a.shipmentId&&['failed','rescheduled','returned'].includes(x.status));
+ if(attempts.length<2||!['failed','rescheduled'].includes(a.status)){toast('El retorno a sucursal requiere al menos dos intentos fallidos registrados.');return}
+ const sh=(db.shipments||[]).find(x=>x.id===a.shipmentId);if(!sh){toast('No se encontró la encomienda.');return}
+ const api=window.deltaExpressSupabase,company=api?.getCompany();if(!api||!company){toast('No hay una sesión activa.');return}
  const note=prompt('Confirma que la encomienda llegó físicamente a la sucursal de destino. Indica observaciones (opcional):','Retorno recibido físicamente en sucursal');
  if(note===null)return;
- const previous={status:a.status,next_attempt_at:a.nextAttemptAt||null,notes:a.notes||null};
  try{
-  const {data:deliveryRow,error:deliveryError}=await api.client.from('deliveries').update({status:'returned',next_attempt_at:null,notes:note.trim()||'Retorno recibido físicamente en sucursal'}).eq('id',deliveryId).eq('company_id',company.id).select('id').maybeSingle();
-  if(deliveryError)throw deliveryError;
-  if(!deliveryRow)throw new Error('No se pudo actualizar el intento: verifica permisos o políticas de acceso.');
-  const {data:shipmentRow,error:shipmentError}=await api.client.from('shipments').update({status:'at_destination_branch'}).eq('id',a.shipmentId).eq('company_id',company.id).select('id').maybeSingle();
-  if(shipmentError||!shipmentRow){
-   const rollback=await api.client.from('deliveries').update({status:previous.status,next_attempt_at:previous.next_attempt_at,notes:previous.notes}).eq('id',deliveryId).eq('company_id',company.id);
-   if(rollback.error)throw new Error('Falló el cambio de estado de la encomienda y también la reversión del intento. Requiere revisión administrativa: '+rollback.error.message);
-   if(shipmentError)throw shipmentError;
-   throw new Error('No se pudo actualizar el estado de la encomienda; se revirtió el intento. Verifica permisos.');
-  }
-  await api.refresh();renderTransportPerformance();toast('Retorno a sucursal registrado. La encomienda queda en sucursal para decisión administrativa.');
+  const {data,error}=await api.client.rpc('confirm_delivery_return_to_branch',{p_company_id:company.id,p_delivery_id:deliveryId,p_notes:note.trim()||null});
+  if(error)throw error;if(data?.delivery_id!==deliveryId||data?.shipment_status!=='returned')throw new Error('El servidor no confirmó el retorno completo.');
+  a.status='returned';a.nextAttemptAt=null;a.notes=note.trim()||'Retorno recibido físicamente en sucursal';
+  sh.status='Devuelta';sh.history=sh.history||[];sh.history.push({status:'Retorno recibido en sucursal',date:today(),time:new Date().toLocaleTimeString('es-CL'),place:sh.dest,user:currentUser?.email||'Usuario',notes:a.notes});
+  persist();await api.refresh();renderTransportPerformance();toast('Retorno físico registrado de forma transaccional.');
  }catch(e){toast('No se pudo registrar el retorno: '+(e.message||'Error de sincronización'))}
 }
 function driverMobileUpdate(code,status){quickStatus(code,status);renderDriverApp()}
