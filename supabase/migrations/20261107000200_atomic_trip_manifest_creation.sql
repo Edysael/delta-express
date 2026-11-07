@@ -87,14 +87,9 @@ BEGIN
   INSERT INTO public.manifest_shipments(company_id,manifest_id,shipment_id)
   SELECT p_company_id,v_manifest_id,x FROM unnest(p_shipment_ids) x;
 
-  UPDATE public.shipments
-  SET status='dispatched',updated_at=now()
-  WHERE id=ANY(p_shipment_ids) AND company_id=p_company_id AND status='sorting';
-  GET DIAGNOSTICS v_updated=ROW_COUNT;
-  IF v_updated<>cardinality(p_shipment_ids) THEN
-    RAISE EXCEPTION 'No se pudieron despachar todas las encomiendas; operación cancelada';
-  END IF;
-
+  -- Creating a draft trip must not dispatch its shipments. They remain in sorting
+  -- until the manifest is sealed and the trip is actually dispatched.
+  v_updated:=v_expected;
   RETURN jsonb_build_object('route_id',v_route_id,'manifest_id',v_manifest_id,'shipment_count',v_updated);
 END;
 $function$;
