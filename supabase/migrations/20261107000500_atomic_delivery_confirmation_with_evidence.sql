@@ -24,6 +24,8 @@ DECLARE
  v_kind text;
  v_path text;
  v_count integer:=0;
+ v_prior integer:=0;
+ v_remaining integer:=0;
 BEGIN
  IF v_user IS NULL THEN RAISE EXCEPTION 'Debe iniciar sesión'; END IF;
  IF p_company_id IS NULL OR p_shipment_id IS NULL OR p_delivery_id IS NULL
@@ -53,6 +55,10 @@ BEGIN
  IF v_shipment.status<>'out_for_delivery' THEN
   RAISE EXCEPTION 'La encomienda ya no está En reparto';
  END IF;
+ SELECT COALESCE(sum(pieces_delivered),0) INTO v_prior FROM public.deliveries
+ WHERE company_id=p_company_id AND shipment_id=p_shipment_id AND status='partial' AND pieces_delivered IS NOT NULL;
+ v_remaining:=v_shipment.pieces-v_prior;
+ IF v_remaining<=0 THEN RAISE EXCEPTION 'No quedan piezas pendientes de entrega'; END IF;
  IF p_branch_id IS NOT NULL AND p_branch_id<>v_shipment.destination_branch_id THEN
   RAISE EXCEPTION 'La sucursal no coincide con el destino de la encomienda';
  END IF;
@@ -78,9 +84,9 @@ BEGIN
  SELECT COALESCE(MAX(attempt_number),0)+1 INTO v_attempt
  FROM public.deliveries WHERE company_id=p_company_id AND shipment_id=p_shipment_id;
  INSERT INTO public.deliveries(id,company_id,shipment_id,driver_id,branch_id,attempt_number,
-  status,recipient_name,recipient_document,delivered_at,notes)
+  status,recipient_name,recipient_document,delivered_at,notes,pieces_delivered,pieces_remaining)
  VALUES(p_delivery_id,p_company_id,p_shipment_id,p_driver_id,p_branch_id,v_attempt,
-  'delivered',btrim(p_recipient_name),NULLIF(btrim(p_recipient_document),''),now(),NULLIF(btrim(p_notes),''));
+  'delivered',btrim(p_recipient_name),NULLIF(btrim(p_recipient_document),''),now(),NULLIF(btrim(p_notes),''),v_remaining,0);
 
  INSERT INTO public.delivery_evidence(company_id,delivery_id,evidence_type,storage_path,description,captured_by,metadata)
  SELECT p_company_id,p_delivery_id,e.value->>'evidence_type',e.value->>'storage_path',
