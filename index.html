@@ -528,16 +528,9 @@ function opsTripCost(id){let t=db.trips.find(x=>x.id===id);if(!t)return;modal('R
     return candidate;
   };
   // Toda transición de sucursal conserva el historial, el usuario y el punto operativo.
-  quickStatus=function(code,status){
-    const x=db.shipments.find(s=>s.code===String(code||'').trim().toUpperCase());
-    if(!x){toast('No se encontró el paquete.');return false;}
-    const allowed={Recibida:['Registrada','Despachada','En tránsito','En sucursal destino'], 'En clasificación':['Recibida','Registrada'], 'En sucursal destino':['En tránsito','Despachada','Recibida']};
-    if(allowed[status]&&!allowed[status].includes(x.status)){toast('Transición no permitida: '+x.status+' → '+status+'.');return false;}
-    addHistory(x,status,x.currentBranch||x.dest||x.origin,'Movimiento confirmado desde sucursal');
-    x.currentBranch=x.currentBranch||x.dest||x.origin;
-    persist();log('Movimiento de sucursal',x.code+' · '+status);
-    renderBranchPortalContent(document.querySelector('#branchportal .pill.active')?.textContent==='Recepción'?'receive':'pending');toast('Movimiento registrado');return true;
-  };
+  // Mantiene la validación persistente de Supabase; no sustituirla por cambios locales.
+  const _quickStatusSupabase=quickStatus;
+  quickStatus=function(code,status){return _quickStatusSupabase(code,status);};
   // Evita duplicar asignaciones de paquetes entre viajes y exige recursos activos.
   const _opsAssignBase=opsAssign;
   opsAssign=function(id){
