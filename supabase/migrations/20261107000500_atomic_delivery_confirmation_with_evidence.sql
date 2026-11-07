@@ -64,13 +64,16 @@ BEGIN
  LOOP
   v_kind:=v_item->>'evidence_type';
   v_path:=v_item->>'storage_path';
-  IF v_kind NOT IN ('signature','photo') OR v_path IS NULL
+  IF v_kind IS NULL OR v_kind NOT IN ('signature','photo') OR v_path IS NULL
     OR v_path NOT LIKE p_company_id::text||'/'||p_shipment_id::text||'/'||p_delivery_id::text||'/%' THEN
    RAISE EXCEPTION 'La ruta o tipo de evidencia no es válido';
   END IF;
   v_count:=v_count+1;
  END LOOP;
  IF v_count>2 THEN RAISE EXCEPTION 'La entrega admite como máximo dos evidencias'; END IF;
+ IF v_count<>(SELECT count(DISTINCT value->>'evidence_type') FROM jsonb_array_elements(COALESCE(p_evidence,'[]'::jsonb))) THEN
+  RAISE EXCEPTION 'No se permite duplicar el tipo de evidencia';
+ END IF;
 
  SELECT COALESCE(MAX(attempt_number),0)+1 INTO v_attempt
  FROM public.deliveries WHERE company_id=p_company_id AND shipment_id=p_shipment_id;
