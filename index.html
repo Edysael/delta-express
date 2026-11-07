@@ -270,22 +270,17 @@ function manageTrip(id){
  const choices=["Programado","En carga","En tránsito","Llegó a destino","Finalizado","Cancelado"];
  modal("Manifiesto "+x.code,`<p><b>Ruta:</b> ${x.origin} → ${x.dest}</p><p><b>Conductor:</b> ${esc(x.driver)} · <b>Vehículo:</b> ${esc(x.vehicle)}</p><p><b>Paquetes:</b></p>${(x.packages||[]).map(c=>`<div class="tile" style="margin:5px 0">${esc(c)}</div>`).join("")}<div class="field"><label>Estado del viaje</label><select id="tripStatus">${choices.map(s=>`<option ${x.status===s?"selected":""}>${s}</option>`).join("")}</select></div><p class="notice">La recepción en destino y el cierre se confirman mediante la conciliación del manifiesto. No se pueden marcar manualmente desde aquí.</p><div class="actions" style="margin-top:10px"><button class="btn" onclick="printManifest('${x.id}')">Imprimir manifiesto</button></div>`,async()=>{
   const next=document.getElementById("tripStatus").value,api=window.deltaExpressSupabase,company=api?.getCompany();
-  if(!api||!company||!x.id){toast("No hay una sesión empresarial válida.");return;}
+  if(!api||!company||!x.id||!x.routeId){toast("No hay una sesión o ruta válida para actualizar el viaje.");return;}
   if(["Llegó a destino","Finalizado"].includes(next)){toast("Usa Recepción de manifiestos para conciliar las encomiendas antes de completar el viaje.");return;}
   const manifestMap={"Programado":"draft","En carga":"sealed","En tránsito":"dispatched","Cancelado":"cancelled"};
-  const routeMap={"Programado":"planned","En carga":"ready","En tránsito":"in_progress","Cancelado":"cancelled"};
   const allowed={"Programado":["Programado","En carga","Cancelado"],"En carga":["En carga","En tránsito","Cancelado"],"En tránsito":["En tránsito"],"Llegó a destino":["Llegó a destino","Finalizado"],"Finalizado":["Finalizado"],"Cancelado":["Cancelado"]};
   if(!allowed[x.status]?.includes(next)){toast("Transición de viaje no permitida: "+x.status+" → "+next+".");return;}
+  if(next===x.status){closeModal();return;}
   try{
-   const {data:manifest,error:me}=await api.client.from("manifests").update({status:manifestMap[next]}).eq("id",x.id).eq("company_id",company.id).select("id,status").maybeSingle();
-   if(me)throw me;if(!manifest)throw new Error("El manifiesto no se actualizó. Comprueba su estado y tus permisos.");
-   if(x.routeId){
-    const patch={status:routeMap[next]};
-    if(next==="En tránsito")patch.actual_departure=new Date().toISOString();
-    const {data:route,error:re}=await api.client.from("routes").update(patch).eq("id",x.routeId).eq("company_id",company.id).select("id,status").maybeSingle();
-    if(re||!route){toast("El manifiesto cambió, pero la ruta no se pudo sincronizar. No se modificó la vista local; solicita conciliación administrativa. "+(re?.message||""));try{await api.refresh()}catch(_){}return;}
-   }
-   x.status=next;persist();await api.refresh();closeModal();renderTransport();toast("Estado del viaje actualizado y verificado en Supabase.");
+   const {data,error}=await api.client.rpc("transition_trip_manifest",{p_company_id:company.id,p_manifest_id:x.id,p_route_id:x.routeId,p_next_manifest_status:manifestMap[next]});
+   if(error)throw error;
+   if(!data?.manifest_id||data.manifest_id!==x.id||data.route_id!==x.routeId)throw new Error("El servidor no confirmó la transición completa.");
+   x.status=next;persist();await api.refresh();closeModal();renderTransport();toast("Viaje y manifiesto actualizados de forma atómica en Supabase.");
   }catch(e){toast("No se pudo actualizar el viaje: "+(e.message||"Error de Supabase"));}
  });
 }
