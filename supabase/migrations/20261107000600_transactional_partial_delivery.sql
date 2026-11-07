@@ -5,6 +5,10 @@ ALTER TABLE public.deliveries
   ADD COLUMN IF NOT EXISTS pieces_delivered integer,
   ADD COLUMN IF NOT EXISTS pieces_remaining integer;
 
+ALTER TABLE public.deliveries DROP CONSTRAINT IF EXISTS deliveries_status_check;
+ALTER TABLE public.deliveries ADD CONSTRAINT deliveries_status_check
+  CHECK (status = ANY (ARRAY['assigned','in_progress','delivered','failed','rescheduled','returned','partial']::text[]));
+
 ALTER TABLE public.deliveries
   ADD CONSTRAINT deliveries_partial_quantities_valid
   CHECK (
