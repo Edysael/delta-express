@@ -24,7 +24,12 @@ BEGIN
     RAISE EXCEPTION 'Faltan identificadores del viaje';
   END IF;
   IF NOT (private.is_company_admin(p_company_id)
-      OR private.can_access_branch(p_company_id,(SELECT m.origin_branch_id FROM public.manifests m WHERE m.id=p_manifest_id AND m.company_id=p_company_id))) THEN
+      OR EXISTS (
+        SELECT 1 FROM public.manifests m
+        WHERE m.id=p_manifest_id AND m.company_id=p_company_id
+          AND (private.can_access_branch(p_company_id,m.origin_branch_id)
+               OR private.can_access_branch(p_company_id,m.destination_branch_id))
+      )) THEN
     RAISE EXCEPTION 'No tiene permisos para administrar este viaje';
   END IF;
 
@@ -47,9 +52,9 @@ BEGIN
   END IF;
 
   IF NOT (private.is_company_admin(p_company_id)
-      OR (private.can_access_branch(p_company_id,v_manifest.origin_branch_id)
-          AND private.can_access_branch(p_company_id,v_manifest.destination_branch_id))) THEN
-    RAISE EXCEPTION 'No tiene acceso a ambas sucursales del viaje';
+      OR private.can_access_branch(p_company_id,v_manifest.origin_branch_id)
+      OR private.can_access_branch(p_company_id,v_manifest.destination_branch_id)) THEN
+    RAISE EXCEPTION 'No tiene acceso a las sucursales del viaje';
   END IF;
 
   CASE p_next_manifest_status
