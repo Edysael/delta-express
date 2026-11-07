@@ -36,7 +36,7 @@ BEGIN
   RAISE EXCEPTION 'Formato de evidencias no válido';
  END IF;
  IF NOT EXISTS(SELECT 1 FROM public.drivers d
-  WHERE d.id=p_driver_id AND d.company_id=p_company_id AND d.user_id=v_user) THEN
+  WHERE d.id=p_driver_id AND d.company_id=p_company_id AND d.user_id=v_user AND d.status='active') THEN
   RAISE EXCEPTION 'El conductor autenticado no coincide con el conductor asignado';
  END IF;
  SELECT * INTO v_shipment FROM public.shipments
