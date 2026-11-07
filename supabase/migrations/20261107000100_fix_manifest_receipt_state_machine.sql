@@ -107,7 +107,7 @@ BEGIN
       v_current_status := 'in_transit';
     END IF;
 
-    IF v_current_status NOT IN ('in_transit','at_destination_branch','incident') THEN
+    IF v_current_status <> 'in_transit' THEN
       RAISE EXCEPTION 'Estado de encomienda no conciliable: % (%)', v_shipment_id, v_current_status;
     END IF;
 
@@ -137,6 +137,7 @@ $function$;
 CREATE OR REPLACE FUNCTION private.require_manifest_receipt_before_received()
 RETURNS trigger
 LANGUAGE plpgsql
+SECURITY DEFINER
 SET search_path TO ''
 AS $function$
 BEGIN
