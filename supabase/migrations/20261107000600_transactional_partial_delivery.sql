@@ -13,7 +13,7 @@ ALTER TABLE public.deliveries
   ADD CONSTRAINT deliveries_partial_quantities_valid
   CHECK (
     (pieces_delivered IS NULL AND pieces_remaining IS NULL)
-    OR (pieces_delivered > 0 AND pieces_remaining >= 0)
+    OR (pieces_delivered IS NOT NULL AND pieces_remaining IS NOT NULL AND pieces_delivered > 0 AND pieces_remaining >= 0)
   );
 
 CREATE OR REPLACE FUNCTION public.record_partial_delivery(
