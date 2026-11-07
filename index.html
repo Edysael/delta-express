@@ -368,10 +368,9 @@ async function driverMobileDeliver(code){
   if(!name){toast('Indica quién recibió el paquete.');return}
   if(file&&!['image/jpeg','image/png','image/webp'].includes(file.type)){toast('La fotografía debe ser JPG, PNG o WebP.');return}
   if(file&&file.size>15*1024*1024){toast('La fotografía supera el límite de 15 MB.');return}
-  if(!signed&&!file&&!confirm('No hay firma ni fotografía. ¿Confirmas igualmente la entrega?'))return;
-  if(!signed&&!confirm('No hay firma. ¿Confirmas igualmente la entrega?'))return;
+  if(!signed&&!confirm(file?'No hay firma. ¿Confirmas igualmente la entrega con fotografía?':'No hay firma ni fotografía. ¿Confirmas igualmente la entrega?'))return;
   const api=window.deltaExpressSupabase,company=api?.getCompany();if(!api||!company||!x.id){toast('No se encontró una sesión o encomienda válida en Supabase.');return}
-  let uploaded=[],deliveryId=(crypto?.randomUUID?crypto.randomUUID():('xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&3|8)).toString(16)})));
+  let uploaded=[],deliveryId=x.pendingDeliveryId||(crypto.randomUUID?crypto.randomUUID():('xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&3|8)).toString(16)})));x.pendingDeliveryId=deliveryId;persist();
   try{
    const {data:userData,error:userErr}=await api.client.auth.getUser();if(userErr||!userData.user)throw new Error('La sesión expiró.');
    const {data:driverRow,error:driverError}=await api.client.from('drivers').select('id').eq('company_id',company.id).eq('user_id',userData.user.id).maybeSingle();
@@ -380,7 +379,7 @@ async function driverMobileDeliver(code){
    async function uploadEvidence(kind,blob,description,filename){
     if(!blob)return;
     const ext=blob.type==='image/webp'?'webp':blob.type==='image/png'?'png':'jpg';
-    const path=`${company.id}/${x.id}/${deliveryId}/${kind}.${ext}`;
+    const path=`${company.id}/${x.id}/${deliveryId}/${kind}-${crypto.randomUUID?crypto.randomUUID():Date.now()}.${ext}`;
     const {error}=await api.client.storage.from('delta-express-evidence').upload(path,blob,{contentType:blob.type||'image/png',upsert:false});
     if(error)throw error;
     uploaded.push(path);
@@ -395,7 +394,7 @@ async function driverMobileDeliver(code){
    });
    if(error)throw error;
    if(data?.delivery_id!==deliveryId||data?.shipment_id!==x.id||data?.status!=='delivered')throw new Error('El servidor no confirmó la entrega completa.');
-   db.deliveryAttempts=db.deliveryAttempts||[];
+   delete x.pendingDeliveryId;db.deliveryAttempts=db.deliveryAttempts||[];
    db.deliveryAttempts.unshift({id:deliveryId,shipmentId:x.id,code,driverId:driverRow.id,attemptNumber:data.attempt_number,status:'delivered',date:new Date().toISOString(),notes});
    x.status='Entregada';x.deliveryEvidence={receivedBy:name,recipientDocument:doc,notes,signature:signed?'Almacenada en Supabase':null,photoName:file?.name||null,date:new Date().toISOString(),deliveryId,captureMode:'Supabase Storage privado'};
    db.deliveryProofs=Array.isArray(db.deliveryProofs)?db.deliveryProofs:[];
