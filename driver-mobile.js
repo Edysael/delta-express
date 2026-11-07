@@ -117,15 +117,15 @@
   }
  }
 
- let gpsWatchId=null,lastGpsSent=0;
+ let gpsWatchId=null,lastGpsSent=0,gpsSaveInFlight=false,gpsStarting=false;
  async function saveGpsPosition(pos){
   const a=api(),c=company();if(!a||!c||!liveDriver)return;
-  const now=Date.now();if(now-lastGpsSent<45000)return;lastGpsSent=now;
+  const now=Date.now();if(now-lastGpsSent<45000||gpsSaveInFlight)return;gpsSaveInFlight=true;
   const p=pos.coords;
   await detectGeofences(pos);
   const {data:u,error:ue}=await a.client.auth.getUser();if(ue)throw ue;if(!u?.user)throw new Error('Sesión vencida');
   const {error}=await a.client.from('driver_location_pings').insert({company_id:c.id,driver_id:liveDriver.id,latitude:p.latitude,longitude:p.longitude,accuracy_m:p.accuracy??null,speed_mps:p.speed??null,heading_deg:p.heading??null,captured_at:new Date(pos.timestamp||now).toISOString()});
-  if(error)throw error;
+  if(error){gpsSaveInFlight=false;throw error;}lastGpsSent=Date.now();gpsSaveInFlight=false;
   const label=document.getElementById('dxGpsStatus');if(label)label.textContent='GPS activo · precisión '+Math.round(p.accuracy||0)+' m · última señal '+new Date().toLocaleTimeString('es-CL');
  }
  function renderGpsControls(){
@@ -134,17 +134,18 @@
   panel.innerHTML='<b>Seguimiento GPS del reparto</b><p id="dxGpsStatus" style="font-size:12px;margin:6px 0 10px">GPS detenido. Actívalo cuando comiences tu jornada de reparto.</p><button id="dxGpsStart" class="btn primary" type="button">Iniciar seguimiento GPS</button> <button id="dxGpsStop" class="btn small" type="button" disabled>Detener</button>';
   host.parentNode?.insertBefore(panel,host);
   panel.querySelector('#dxGpsStart').onclick=async()=>{
-   if(!navigator.geolocation){window.toast?.('Este dispositivo no admite geolocalización.');return;}
-   try{await loadAssigned();await loadGeofenceBranches();}catch(e){window.toast?.(e.message);return;}if(!liveDriver)return;
+   if(gpsStarting||gpsWatchId!==null)return;gpsStarting=true;panel.querySelector('#dxGpsStart').disabled=true;
+   if(!navigator.geolocation){gpsStarting=false;panel.querySelector('#dxGpsStart').disabled=false;window.toast?.('Este dispositivo no admite geolocalización.');return;}
+   try{await loadAssigned();await loadGeofenceBranches();}catch(e){gpsStarting=false;panel.querySelector('#dxGpsStart').disabled=false;window.toast?.(e.message);return;}if(!liveDriver){gpsStarting=false;panel.querySelector('#dxGpsStart').disabled=false;return;}
    navigator.geolocation.getCurrentPosition(async pos=>{
     try{lastGpsSent=0;await saveGpsPosition(pos);}catch(e){window.toast?.('No se pudo guardar la ubicación: '+e.message);return;}
     if(gpsWatchId!==null)navigator.geolocation.clearWatch(gpsWatchId);
     gpsWatchId=navigator.geolocation.watchPosition(async p=>{try{await saveGpsPosition(p);}catch(e){console.warn('GPS Delta-Express:',e);}},err=>{const el=document.getElementById('dxGpsStatus');if(el)el.textContent='GPS interrumpido: '+err.message;},{enableHighAccuracy:true,maximumAge:15000,timeout:20000});
-    panel.querySelector('#dxGpsStart').disabled=true;panel.querySelector('#dxGpsStop').disabled=false;
+    gpsStarting=false;panel.querySelector('#dxGpsStart').disabled=true;panel.querySelector('#dxGpsStop').disabled=false;
     window.toast?.('Seguimiento GPS iniciado. Se guardará una posición aproximadamente cada 45 segundos.');
-   },err=>window.toast?.('No se pudo obtener la ubicación: '+err.message),{enableHighAccuracy:true,maximumAge:0,timeout:20000});
+   },err=>{gpsStarting=false;panel.querySelector('#dxGpsStart').disabled=false;window.toast?.('No se pudo obtener la ubicación: '+err.message);},{enableHighAccuracy:true,maximumAge:0,timeout:20000});
   };
-  panel.querySelector('#dxGpsStop').onclick=()=>{if(gpsWatchId!==null)navigator.geolocation.clearWatch(gpsWatchId);gpsWatchId=null;panel.querySelector('#dxGpsStart').disabled=false;panel.querySelector('#dxGpsStop').disabled=true;const el=document.getElementById('dxGpsStatus');if(el)el.textContent='Seguimiento GPS detenido por el conductor.';};
+  panel.querySelector('#dxGpsStop').onclick=()=>{if(gpsWatchId!==null)navigator.geolocation.clearWatch(gpsWatchId);gpsWatchId=null;gpsStarting=false;panel.querySelector('#dxGpsStart').disabled=false;panel.querySelector('#dxGpsStop').disabled=true;const el=document.getElementById('dxGpsStatus');if(el)el.textContent='Seguimiento GPS detenido por el conductor.';};
  }
  const priorRenderGps=window.renderDriverApp;
  window.renderDriverApp=function(){if(typeof priorRenderGps==='function')priorRenderGps();if(isDriver())renderGpsControls();};
